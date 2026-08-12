@@ -268,6 +268,8 @@ def test_convene_async_returns_202_with_a_round_to_watch():
     assert job["session_id"] == created["id"]
     assert job["status"] in {"queued", "running", "delivered"}
 
+    _wait_terminal(job["id"], workspace_id="default-workspace")
+
 
 def test_the_opening_brief_is_persisted_before_the_202_returns():
     """
@@ -278,13 +280,15 @@ def test_the_opening_brief_is_persisted_before_the_202_returns():
     created = client.post("/api/chat/sessions", json={
         "title": "brief timing", "selected_agent_ids": ["finance"],
     }).json()
-    client.post(
+    job = client.post(
         f"/api/chat/sessions/{created['id']}/convene-async",
         json={"message": "Model the runway."},
-    )
+    ).json()
     session = client.get(f"/api/chat/sessions/{created['id']}").json()
     user_turns = [m for m in session["messages"] if m["role"] == "user"]
     assert any(m["content"] == "Model the runway." for m in user_turns)
+
+    _wait_terminal(job["id"], workspace_id="default-workspace")
 
 
 def test_convene_async_404s_a_missing_session():
@@ -307,6 +311,8 @@ def test_get_current_round_finds_the_most_recent_one():
     response = client.get(f"/api/chat/sessions/{created['id']}/round")
     assert response.status_code == 200
     assert response.json()["id"] == started["id"]
+
+    _wait_terminal(started["id"], workspace_id="default-workspace")
 
 
 def test_get_current_round_404s_when_nothing_has_convened():
@@ -353,3 +359,5 @@ def test_another_tenants_round_is_404_not_403():
         f"/api/rounds/{job['id']}", headers={"X-Workspace-Id": "some-other-tenant"},
     )
     assert response.status_code == 404
+
+    _wait_terminal(job["id"], workspace_id="default-workspace")

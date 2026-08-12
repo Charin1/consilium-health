@@ -10,6 +10,7 @@ the tests here are about observability while work runs, not about the result:
 - one tenant cannot read another's jobs
 """
 import threading
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -21,6 +22,31 @@ from main import app
 client = TestClient(app)
 
 WS = "w-jobs"
+
+
+def _wait_terminal(job_id, workspace_id, timeout=5.0):
+    """
+    Block until a spawned job reaches a terminal state.
+
+    Every test that hits `assign-async` spawns a real background thread
+    (`job_service.spawn`). If the test function returns while that thread is
+    still running, the thread outlives the test -- and keeps reading
+    process-global state (`os.environ`, provider overrides, the LangChain
+    client cache) that OTHER tests are concurrently mutating via monkeypatch.
+    That produced a real, order-dependent bug: an orphaned thread's
+    `_call_model` call could observe a different test's temporary
+    `GROQ_API_KEY=test-key`, attempt a genuine network call, and turn a
+    millisecond-scale suite into a 70-second one with a flaky failure
+    somewhere else entirely. Waiting here is what test isolation actually
+    requires -- not a nicety.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        job = job_service.get(job_id, workspace_id)
+        if job and job["is_terminal"]:
+            return job
+        time.sleep(0.02)
+    raise AssertionError(f"job {job_id} never reached a terminal state")
 
 
 @pytest.fixture
@@ -229,6 +255,8 @@ def test_async_assign_returns_202_with_a_job_to_watch():
     job = response.json()
     assert job["seat_id"] == "finance"
     assert job["status"] in {"queued", "running", "delivered"}
+
+    _wait_terminal(job["id"], workspace_id="default-workspace")
 
 
 def test_a_rejected_assignment_never_creates_a_job():
