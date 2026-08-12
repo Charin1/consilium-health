@@ -1,0 +1,1287 @@
+/*
+ * Org console.
+ *
+ * This is a tool, not a document: it is scanned and operated. Everything here
+ * serves reading a 44-seat roster at a glance and telling, before you spend
+ * money, whether the room you assembled will actually argue.
+ *
+ * Colour carries meaning and nothing else:
+ *   --accent    the org, seats, selection
+ *   --tension   declared disagreement (the thing worth paying for)
+ *   --guard     a clinical boundary or a degraded config
+ * Every token is defined on bare :root, so the un-stamped "system" theme -
+ * which most viewers get - resolves as a complete set.
+ */
+
+:root {
+    --ground: #f6f7f9;
+    --surface: #ffffff;
+    --surface-sunk: #eef0f4;
+    --line: #dfe3ea;
+    --line-strong: #c4cbd6;
+
+    --ink: #161a20;
+    --ink-soft: #59626f;
+    --ink-faint: #8a93a1;
+
+    --accent: #0e6a70;
+    --accent-ink: #0a4a4e;
+    --accent-soft: #e0f0f0;
+
+    --tension: #a05a00;
+    --tension-soft: #fbeeda;
+
+    --guard: #97383a;
+    --guard-soft: #fbeaea;
+
+    --shadow: 0 1px 2px rgba(20, 26, 34, 0.06), 0 4px 12px rgba(20, 26, 34, 0.04);
+
+    --font-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+
+    --radius: 6px;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+        --ground: #12151a;
+        --surface: #191d24;
+        --surface-sunk: #14181e;
+        --line: #2a303a;
+        --line-strong: #3b434f;
+
+        --ink: #e7eaee;
+        --ink-soft: #9aa4b2;
+        --ink-faint: #6d7787;
+
+        --accent: #4fb3b8;
+        --accent-ink: #8fd3d6;
+        --accent-soft: #14312f;
+
+        --tension: #d99a3f;
+        --tension-soft: #33270f;
+
+        --guard: #d98080;
+        --guard-soft: #341b1c;
+
+        --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.25);
+    }
+}
+
+:root[data-theme="dark"] {
+    --ground: #12151a;
+    --surface: #191d24;
+    --surface-sunk: #14181e;
+    --line: #2a303a;
+    --line-strong: #3b434f;
+
+    --ink: #e7eaee;
+    --ink-soft: #9aa4b2;
+    --ink-faint: #6d7787;
+
+    --accent: #4fb3b8;
+    --accent-ink: #8fd3d6;
+    --accent-soft: #14312f;
+
+    --tension: #d99a3f;
+    --tension-soft: #33270f;
+
+    --guard: #d98080;
+    --guard-soft: #341b1c;
+
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--font-ui);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+}
+
+button { font: inherit; color: inherit; cursor: pointer; }
+
+:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* ---------------------------------------------------------------- shell */
+
+.console {
+    display: grid;
+    grid-template-rows: auto auto 1fr;
+    height: 100vh;
+    overflow: hidden;
+}
+
+.masthead {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding: 12px 20px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+}
+
+.masthead h1 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 650;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.masthead .sub {
+    color: var(--ink-faint);
+    font-size: 12px;
+}
+
+.masthead .spacer { flex: 1; }
+
+.pack-picker {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.pack-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--ink-soft);
+    font-size: 12px;
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.pack-chip[aria-pressed="true"] {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+    font-weight: 600;
+}
+
+.pack-chip .count {
+    font-variant-numeric: tabular-nums;
+    color: var(--ink-faint);
+    font-size: 11px;
+}
+
+/*
+ * Compact disclosure badges, replacing what used to be a full-width banner
+ * row (~40px, permanently on screen). The guardrail itself is enforced
+ * server-side in every prompt regardless of this text; this is only the
+ * user-facing disclosure of it, so shrinking it costs nothing functionally.
+ * Full wording stays reachable via `title` (hover) and `aria-label`.
+ */
+.disclaimer-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: var(--guard-soft);
+    color: var(--guard);
+    font-size: 10.5px;
+    font-weight: 650;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+    cursor: default;
+}
+
+.disclaimer-badge.is-degraded { background: var(--tension-soft); color: var(--tension); }
+
+/* --------------------------------------------------------------- panes */
+
+.panes {
+    display: grid;
+    grid-template-columns: 300px minmax(0, 1fr) 300px;
+    gap: 1px;
+    background: var(--line);
+    min-height: 0;
+}
+
+.pane {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--ground);
+}
+
+.pane-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+}
+
+.pane-head h2 {
+    margin: 0;
+    font-size: 11px;
+    font-weight: 650;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+}
+
+.pane-head .tally {
+    margin-left: auto;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink-faint);
+}
+
+.pane-body {
+    flex: 1;
+    /* A floor, not zero: with the room's brief-form + readout above it eating
+       most of a squeezed pane, `min-height: 0` let this collapse to a sliver
+       -- present and scrollable, but showing nothing useful. The "Seated"
+       grid is the single most important thing in the room and it was the
+       first casualty. */
+    min-height: 110px;
+    overflow-y: auto;
+    padding: 12px;
+}
+
+/*
+ * The centre column used to stack Room above the Work Log in one fixed
+ * split (58/42 of a shared height). Whichever way that split was cut, the
+ * two competed for the same limited space -- the brief-form and readout
+ * alone could consume Room's whole share, squeezing the "Seated" grid to a
+ * sliver underneath it, or the log's transcript could be left with barely
+ * enough room to show one turn.
+ *
+ * Tabs remove the competition entirely: Room / Seated / Work Log are three
+ * views over the same pane, and whichever is active gets the FULL height.
+ * `.middle-pane` is just `.pane` (already a flex column); only one
+ * `.tab-panel` is ever visible at a time, toggled by `.is-active`.
+ */
+.middle-pane { min-height: 0; }
+
+.tab-bar { gap: 4px; position: relative; }
+
+.tab-button {
+    padding: 5px 12px;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--ink-soft);
+    font-size: 12px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.tab-button:hover { background: var(--surface-sunk); }
+
+.tab-button[aria-selected="true"] {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+}
+
+.tab-button .tally {
+    margin-left: 0;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.08);
+    font-size: 10px;
+}
+
+/* A live round is worth knowing about even while looking at another tab. */
+.tab-bar-live {
+    width: 7px;
+    height: 7px;
+    margin-left: 2px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: round-pulse 1.1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .tab-bar-live { animation: none; }
+}
+
+/* Pushes the convene/stop/continue button to the right of the tab row,
+   separating it from Room / Seated / Work Log so it reads as the panel's
+   primary action rather than a fourth thing to navigate to. */
+.tab-bar-spacer { flex: 1; }
+
+.convene-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 16px;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    background: var(--accent);
+    color: #fff;
+    font-size: 12.5px;
+    font-weight: 650;
+    white-space: nowrap;
+}
+
+.convene-toggle:hover:not(:disabled) { filter: brightness(1.08); }
+.convene-toggle:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Stop state: same shape, guardrail-tension colour so it reads as "this ends
+   something" rather than "this starts something". */
+.convene-toggle.is-stop {
+    border-color: var(--tension);
+    background: var(--tension);
+}
+
+.convene-toggle .tab-bar-live { background: currentColor; margin-left: 0; }
+
+.tab-panel { display: none; }
+
+.tab-panel.is-active {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    /* Room/Seated already scroll internally via their own .pane-body; Work
+       Log has no such wrapper of its own, so this is its only scroll
+       container. Harmless on the other two -- their inner box fills this one
+       exactly, so this outer scrollbar never has anything to activate on. */
+    overflow-y: auto;
+}
+
+/* Work Log's tab-panel is the only one with no inner .pane-body of its own,
+   so it takes the padding directly rather than through a shared rule that
+   would double up with Room's/Seated's already-padded children. */
+.tab-panel.is-active.log-panel { padding: 12px 14px; }
+
+@media (max-width: 1100px) {
+    .panes { grid-template-columns: 1fr; grid-auto-rows: minmax(240px, auto); overflow-y: auto; }
+    .console { height: auto; min-height: 100vh; overflow: visible; }
+    .pane-body { overflow-y: visible; }
+}
+
+/* ----------------------------------------------------------- directory */
+
+.filters {
+    display: grid;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+}
+
+.filters input[type="search"] {
+    width: 100%;
+    padding: 6px 9px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: var(--ground);
+    color: var(--ink);
+    font: inherit;
+    font-size: 13px;
+}
+
+.tag-row { display: flex; flex-wrap: wrap; gap: 4px; }
+
+.tag {
+    padding: 2px 7px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: transparent;
+    color: var(--ink-faint);
+    font-size: 10.5px;
+    letter-spacing: 0.03em;
+}
+
+.tag[aria-pressed="true"] {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--surface);
+}
+
+.tier-heading {
+    margin: 14px 0 6px;
+    font-size: 10.5px;
+    font-weight: 650;
+    letter-spacing: 0.11em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+}
+.tier-heading:first-child { margin-top: 0; }
+
+.seat {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 8px 10px;
+    margin-bottom: 4px;
+    border: 1px solid var(--line);
+    border-left: 3px solid transparent;
+    border-radius: var(--radius);
+    background: var(--surface);
+    transition: border-color 0.12s, background 0.12s;
+}
+
+.seat:hover { border-color: var(--line-strong); }
+
+.seat[aria-pressed="true"] {
+    border-left-color: var(--accent);
+    background: var(--accent-soft);
+}
+
+.seat.is-inspected { border-color: var(--accent); }
+
+.seat .name { display: block; font-weight: 600; font-size: 13px; }
+.seat .role { display: block; color: var(--ink-soft); font-size: 11.5px; margin-top: 1px; }
+
+.seat .meta {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    margin-top: 5px;
+    font-size: 10.5px;
+    color: var(--ink-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.pack-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex: none;
+}
+.pack-dot[data-pack="core"] { background: var(--ink-faint); }
+.pack-dot[data-pack="healthcare"] { background: #2f8f8f; }
+.pack-dot[data-pack="pharma"] { background: #7b6bd6; }
+.pack-dot[data-pack="lifesciences"] { background: #4c9a5a; }
+
+/* ---------------------------------------------------------------- room */
+
+.brief-form {
+    display: grid;
+    gap: 8px;
+    padding: 12px 14px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+}
+
+.brief-form textarea {
+    width: 100%;
+    min-height: 60px;
+    padding: 8px 10px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: var(--ground);
+    color: var(--ink);
+    font: inherit;
+    resize: vertical;
+}
+
+.brief-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+.btn {
+    padding: 6px 14px;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    background: var(--accent);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+}
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.btn-ghost {
+    padding: 6px 12px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--ink-soft);
+    font-size: 13px;
+}
+
+.cap-field {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--ink-soft);
+}
+.cap-field input {
+    width: 52px;
+    padding: 4px 6px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: var(--ground);
+    color: var(--ink);
+    font: inherit;
+    font-variant-numeric: tabular-nums;
+}
+
+.readout {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    padding: 8px 14px;
+    background: var(--surface-sunk);
+    border-bottom: 1px solid var(--line);
+    font-size: 11.5px;
+    color: var(--ink-soft);
+}
+
+.readout .figure {
+    font-variant-numeric: tabular-nums;
+    font-weight: 650;
+    color: var(--ink);
+}
+
+.readout .est {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-faint);
+}
+
+.readout .warn { color: var(--tension); }
+
+/* ----------------------------------------------------- round progress */
+/*
+ * The live "Convene the board" status strip. The pulse is the same signal
+ * language as the Floor's busy desks: motion means a round is genuinely
+ * in-flight, driven by a polled job row, not decoration.
+ */
+
+.round-progress {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 11px;
+    margin-bottom: 10px;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    background: var(--accent-soft);
+    font-size: 12.5px;
+    color: var(--accent-ink);
+}
+
+.round-progress.is-stopping {
+    border-color: var(--tension);
+    background: var(--tension-soft);
+    color: var(--tension);
+}
+
+.round-pulse {
+    width: 8px;
+    height: 8px;
+    flex: none;
+    border-radius: 50%;
+    background: currentColor;
+    animation: round-pulse 1.1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .round-pulse { animation: none; opacity: 0.7; }
+}
+
+@keyframes round-pulse {
+    0%, 100% { opacity: 0.35; transform: scale(0.85); }
+    50% { opacity: 1; transform: scale(1); }
+}
+
+.round-label { flex: 1; font-weight: 600; }
+
+.round-stop {
+    padding: 3px 10px;
+    border-color: currentColor;
+    color: inherit;
+    font-size: 11.5px;
+}
+.round-stop:hover { background: rgba(0, 0, 0, 0.06); }
+
+.round-stopping-label {
+    font-size: 11px;
+    font-style: italic;
+    opacity: 0.85;
+}
+
+.notice {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+    padding: 8px 10px;
+    border-radius: var(--radius);
+    font-size: 12.5px;
+}
+.notice-tension { background: var(--tension-soft); color: var(--tension); }
+.notice-guard { background: var(--guard-soft); color: var(--guard); }
+
+.block-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 8px;
+}
+
+.block {
+    position: relative;
+    padding: 9px 10px;
+    border: 1px solid var(--line);
+    border-top: 3px solid var(--accent);
+    border-radius: var(--radius);
+    background: var(--surface);
+    box-shadow: var(--shadow);
+}
+
+.block.has-tension { border-top-color: var(--tension); }
+
+.block .name { font-weight: 650; font-size: 12.5px; }
+.block .role { color: var(--ink-soft); font-size: 11px; margin-top: 2px; }
+
+.block .drop {
+    position: absolute;
+    top: 5px;
+    right: 6px;
+    padding: 0 4px;
+    border: none;
+    background: transparent;
+    color: var(--ink-faint);
+    font-size: 14px;
+    line-height: 1;
+}
+.block .drop:hover { color: var(--guard); }
+
+.block .why {
+    margin-top: 6px;
+    font-size: 10.5px;
+    color: var(--ink-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.tension-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+
+.tension-list li {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 5px 8px;
+    border-left: 2px solid var(--tension);
+    background: var(--tension-soft);
+    border-radius: 0 var(--radius) var(--radius) 0;
+    font-size: 12px;
+}
+.tension-list .vs { color: var(--tension); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; }
+.tension-list .one-sided { margin-left: auto; font-size: 10px; color: var(--ink-faint); }
+
+.rationale { display: grid; gap: 5px; }
+.rationale-row { font-size: 11.5px; color: var(--ink-soft); }
+.rationale-row .rule {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--accent-ink);
+    background: var(--accent-soft);
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-right: 6px;
+}
+.rationale-row .term {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--ink);
+}
+
+.section { margin-bottom: 16px; }
+.section > h3 {
+    margin: 0 0 7px;
+    font-size: 10.5px;
+    font-weight: 650;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+}
+
+/* ------------------------------------------------------------- worklog */
+
+.turn {
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+}
+
+.turn.is-user { background: var(--surface-sunk); border-style: dashed; }
+
+.turn-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 5px;
+}
+
+.turn-head .who { font-weight: 650; font-size: 12.5px; }
+.turn-head .when { margin-left: auto; font-size: 10.5px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+
+.turn-body { font-size: 13px; line-height: 1.55; }
+.turn-body p { margin: 0 0 8px; }
+.turn-body ul, .turn-body ol { margin: 0 0 8px; padding-left: 18px; }
+.turn-body pre { overflow-x: auto; background: var(--surface-sunk); padding: 8px; border-radius: var(--radius); }
+.turn-body code, .inline-code { font-family: var(--font-mono); font-size: 12px; }
+
+.composer {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    position: sticky;
+    bottom: 0;
+    padding: 10px 0 2px;
+    background: var(--surface-sunk);
+}
+
+.composer select,
+.composer input {
+    padding: 7px 9px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--ink);
+    font: inherit;
+    font-size: 13px;
+}
+
+.composer select { flex: none; max-width: 190px; }
+.composer input { flex: 1; min-width: 0; }
+
+/* ----------------------------------------------------------- inspector */
+
+.dossier h3 { margin: 0 0 2px; font-size: 15px; }
+.dossier .role { color: var(--ink-soft); font-size: 12.5px; margin-bottom: 10px; }
+
+.kv { display: grid; grid-template-columns: 76px 1fr; gap: 4px 10px; font-size: 12px; margin-bottom: 12px; }
+.kv dt { color: var(--ink-faint); text-transform: uppercase; font-size: 10px; letter-spacing: 0.06em; padding-top: 2px; }
+.kv dd { margin: 0; }
+
+.conflict-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; font-size: 12px; }
+.conflict-list li { display: flex; gap: 6px; align-items: baseline; }
+.conflict-list .in-room { color: var(--tension); font-weight: 600; }
+
+/* ------------------------------------------------------------ settings */
+
+.modal-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: rgba(10, 14, 20, 0.55);
+}
+
+.modal {
+    display: flex;
+    flex-direction: column;
+    width: min(620px, 100%);
+    max-height: min(84vh, 760px);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    box-shadow: 0 18px 48px rgba(10, 14, 20, 0.3);
+}
+
+.modal-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--line);
+}
+.modal-head h2 { margin: 0; font-size: 15px; font-weight: 650; }
+.modal-head .btn-ghost { margin-left: auto; }
+
+.modal-body { padding: 16px 18px; overflow-y: auto; }
+
+.settings-form { display: grid; gap: 16px; }
+
+.provider-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.provider-card {
+    display: grid;
+    gap: 3px;
+    padding: 10px 11px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--ground);
+    cursor: pointer;
+    transition: border-color 0.12s, background 0.12s;
+}
+.provider-card:hover { border-color: var(--line-strong); }
+.provider-card.is-active { border-color: var(--accent); background: var(--accent-soft); }
+.provider-card:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.provider-name { font-weight: 650; font-size: 13px; }
+
+.provider-state {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-faint);
+}
+.provider-state.ok { color: var(--accent-ink); }
+
+.field { display: grid; gap: 5px; }
+.field > span { font-size: 11px; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-soft); }
+.field input,
+.field select {
+    padding: 8px 10px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    background: var(--ground);
+    color: var(--ink);
+    font: inherit;
+    font-size: 13px;
+}
+.field small { color: var(--ink-faint); font-size: 11.5px; line-height: 1.45; }
+
+.modal-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+/* -------------------------------------------------------------- states */
+
+.state {
+    display: grid;
+    gap: 6px;
+    padding: 28px 16px;
+    text-align: center;
+    color: var(--ink-faint);
+    font-size: 12.5px;
+}
+.state strong { color: var(--ink-soft); font-size: 13px; font-weight: 600; }
+
+.error-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    margin-bottom: 10px;
+    border: 1px solid var(--guard);
+    border-radius: var(--radius);
+    background: var(--guard-soft);
+    color: var(--guard);
+    font-size: 12.5px;
+}
+.error-banner button { margin-left: auto; }
+
+.skeleton {
+    height: 46px;
+    margin-bottom: 4px;
+    border-radius: var(--radius);
+    background: linear-gradient(90deg, var(--surface-sunk) 25%, var(--line) 50%, var(--surface-sunk) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
+}
+
+.sr-only {
+    position: absolute;
+    width: 1px; height: 1px;
+    padding: 0; margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.pack-chip.needs-attention {
+    border-color: var(--guard);
+    color: var(--guard);
+    background: var(--guard-soft);
+}
+
+/* --------------------------------------------------------------- tasks */
+/* A styled-div table still needs the roles, or it is a wall of text to a
+   screen reader. Set in the JSX; the grid only handles the columns. */
+
+.tasks {
+    display: grid;
+    gap: 1px;
+    margin-bottom: 14px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.task-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 130px 76px 92px;
+    gap: 10px;
+    align-items: baseline;
+    padding: 7px 10px;
+    background: var(--surface);
+    font-size: 12.5px;
+}
+
+.task-head {
+    background: var(--surface-sunk);
+    font-size: 10px;
+    font-weight: 650;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+}
+
+.task-row .priority { font-variant-numeric: tabular-nums; }
+.task-row .p-high { color: var(--guard); font-weight: 650; }
+.task-row .p-low { color: var(--ink-faint); }
+
+.task-row .delivered { color: var(--accent-ink); font-weight: 600; }
+.task-row .outstanding { color: var(--tension); font-weight: 600; }
+
+@media (max-width: 640px) {
+    .task-row { grid-template-columns: 1fr 1fr; }
+}
+
+/* --------------------------------------------------------------- floor */
+/*
+ * The floor commits to one visual world -- a dark ops screen -- rather than
+ * following the viewer's theme. A top-down view of a lit room does not have a
+ * light mode any more than a radar scope does, so the colours here are
+ * absolute and painted explicitly, never inherited.
+ *
+ * TYPE SCALE. The first pass used 9.5px status text and 11px names, which is
+ * below what anyone reads at a glance -- and a floor you have to squint at
+ * defeats the point of a floor. Sizes are set once here and scale as a unit
+ * with the zoom via --card-scale, so text stays crisp (a CSS transform on text
+ * still renders as vectors) and the hierarchy holds at every zoom level.
+ *
+ *   name    13px / 600    the thing you scan for
+ *   status  10.5px / 600  uppercase, tracked -- a label, not prose
+ *   tip     13px title, 12px body
+ *   zone    11px          tracked caps, sits behind everything
+ */
+
+.floor {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    background: radial-gradient(ellipse at 50% 42%, #16222b 0%, #0b1116 62%, #070b0f 100%);
+    background-color: #070b0f;
+    cursor: grab;
+    touch-action: none;
+}
+
+.floor.is-panning { cursor: grabbing; }
+.floor:focus-visible { outline: 2px solid #4fb3b8; outline-offset: -2px; }
+.floor canvas { display: block; }
+
+.floor-error {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 6;
+}
+
+.floor-zone-label {
+    position: absolute;
+    transform: translate(-2px, -100%);
+    font-size: 11px;
+    font-weight: 650;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    pointer-events: none;
+    white-space: nowrap;
+    opacity: 0.8;
+}
+
+.floor-seats { list-style: none; margin: 0; padding: 0; }
+
+.floor-seat {
+    position: absolute;
+    transform: translate(-50%, -50%);
+}
+
+/* Zoomed far out the labels are unreadable and 44 of them are noise, so the
+   canvas markers carry the floor alone. */
+.detail-dot .floor-card { display: none; }
+.detail-compact .floor-status,
+.detail-name .floor-status { display: none; }
+
+.floor-card {
+    display: grid;
+    gap: 2px;
+    min-width: 104px;
+    max-width: 124px;
+    padding: 6px 9px;
+    border: 1px solid rgba(140, 165, 180, 0.3);
+    border-radius: 6px;
+    background: rgba(9, 17, 23, 0.9);
+    color: #d7e6eb;
+    text-align: center;
+    transform: scale(var(--card-scale, 1));
+    transform-origin: center bottom;
+    transition: border-color 0.14s, background 0.14s, box-shadow 0.14s;
+}
+
+.floor-card:hover,
+.floor-card:focus-visible {
+    border-color: #4fb3b8;
+    background: rgba(15, 32, 39, 0.96);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    z-index: 3;
+}
+
+.floor-card.is-seated { border-color: rgba(79, 179, 184, 0.8); }
+.floor-card.is-busy { border-color: #2fb3b8; }
+.floor-card.is-failed { border-color: #c05555; }
+.floor-card.is-done { border-color: rgba(76, 154, 90, 0.85); }
+.floor-card.is-queued { border-color: rgba(217, 154, 63, 0.85); }
+
+.floor-name {
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.floor-status {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: #7f909b;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.is-busy .floor-status { color: #58d4d9; }
+.is-failed .floor-status { color: #e69090; }
+.is-done .floor-status { color: #85cc93; }
+.is-queued .floor-status { color: #e0a94f; }
+
+.floor-tip {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 8;
+    display: grid;
+    gap: 4px;
+    width: 240px;
+    padding: 11px 13px;
+    border: 1px solid rgba(79, 179, 184, 0.5);
+    border-radius: 7px;
+    background: rgba(7, 15, 20, 0.98);
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.6);
+    color: #d7e6eb;
+    font-size: 12px;
+    line-height: 1.45;
+    text-align: left;
+}
+
+.floor-tip strong { font-size: 13px; font-weight: 650; }
+.floor-tip-role { color: #93a7b1; }
+
+.floor-tip-state {
+    font-size: 10.5px;
+    font-weight: 650;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: #7f909b;
+}
+.floor-tip-state.is-busy { color: #58d4d9; }
+.floor-tip-state.is-failed { color: #e69090; }
+.floor-tip-state.is-done { color: #85cc93; }
+.floor-tip-state.is-queued { color: #e0a94f; }
+
+.floor-tip-job { color: #93a7b1; font-style: italic; }
+.floor-tip-error { color: #e69090; }
+
+.floor-tip-actions { display: flex; gap: 6px; margin-top: 6px; }
+.floor-tip-actions .btn-ghost {
+    flex: 1;
+    padding: 4px 9px;
+    border-color: rgba(140, 165, 180, 0.35);
+    color: #d7e6eb;
+    font-size: 12px;
+}
+.floor-tip-actions .btn-ghost:hover { border-color: #4fb3b8; }
+
+/* ---- controls ---- */
+
+.floor-controls {
+    position: absolute;
+    right: 14px;
+    bottom: 12px;
+    z-index: 6;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 4px;
+    border: 1px solid rgba(140, 165, 180, 0.22);
+    border-radius: 8px;
+    background: rgba(8, 16, 21, 0.9);
+}
+
+.floor-controls button {
+    min-width: 30px;
+    height: 28px;
+    padding: 0 8px;
+    border: none;
+    border-radius: 5px;
+    background: transparent;
+    color: #b9ccd4;
+    font-size: 16px;
+    line-height: 1;
+}
+
+.floor-controls button.fit {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+}
+
+.floor-controls button:hover:not(:disabled) {
+    background: rgba(79, 179, 184, 0.18);
+    color: #eaf4f6;
+}
+.floor-controls button:disabled { opacity: 0.3; cursor: not-allowed; }
+
+.zoom-readout {
+    min-width: 46px;
+    text-align: center;
+    font-size: 11.5px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: #8fa3ad;
+}
+
+.floor-legend {
+    position: absolute;
+    left: 14px;
+    bottom: 12px;
+    z-index: 6;
+    display: flex;
+    gap: 13px;
+    padding: 7px 12px;
+    border: 1px solid rgba(140, 165, 180, 0.2);
+    border-radius: 999px;
+    background: rgba(8, 16, 21, 0.85);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: #7f909b;
+    pointer-events: none;
+}
+
+.floor-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.floor-legend i { width: 8px; height: 8px; border-radius: 50%; }
+
+@media (max-width: 780px) {
+    .floor-legend { display: none; }
+}
+
+.view-switch { display: inline-flex; gap: 4px; }
+.view-switch .pack-chip { border-radius: var(--radius); }
+
+.console.is-floor { grid-template-rows: auto auto 1fr; }
+.console.is-floor .floor-pane { display: flex; flex-direction: column; min-height: 0; }
+
+/* ------------------------------------------------------------- history */
+
+.history {
+    display: grid;
+    grid-template-columns: 380px minmax(0, 1fr);
+    gap: 1px;
+    min-height: 0;
+    background: var(--line);
+}
+
+.history-list,
+.history-detail {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--ground);
+}
+
+.history-tabs { display: flex; gap: 4px; margin-left: auto; }
+
+.history-row {
+    display: grid;
+    gap: 3px;
+    width: 100%;
+    padding: 9px 11px;
+    margin-bottom: 5px;
+    border: 1px solid var(--line);
+    border-left: 3px solid transparent;
+    border-radius: var(--radius);
+    background: var(--surface);
+    text-align: left;
+    transition: border-color 0.12s, background 0.12s;
+}
+
+.history-row:hover { border-color: var(--line-strong); }
+.history-row.is-open { border-left-color: var(--accent); background: var(--accent-soft); }
+
+.history-title {
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.35;
+    /* Titles are briefs, so they run long. Two lines, then clip -- a wall of
+       wrapped text defeats a scannable list. */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.history-meta {
+    font-size: 11px;
+    color: var(--ink-faint);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.history-meta .delivered { color: var(--accent-ink); font-weight: 600; }
+.history-meta .outstanding { color: var(--tension); font-weight: 600; }
+.history-source { font-style: italic; }
+
+.history-packs { display: flex; gap: 3px; }
+
+@media (max-width: 900px) {
+    .history { grid-template-columns: 1fr; grid-auto-rows: minmax(260px, auto); }
+}

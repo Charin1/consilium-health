@@ -1,0 +1,44 @@
+/*
+ * Minimal reset. The console owns its own tokens and typography in
+ * console/console.css -- nothing global should compete with them.
+ *
+ * This replaced a 389-line design system inherited from the copied frontend,
+ * which set its own body background and font and quietly overrode the
+ * console's palette.
+ */
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+    height: 100%;
+}
+
+body {
+    margin: 0;
+}
+
+img,
+svg,
+video {
+    max-width: 100%;
+    height: auto;
+    display: block;
+}
+
+h1, h2, h3, h4, p, figure, blockquote, dl, dd {
+    margin: 0;
+}
+
+button,
+input,
+textarea,
+select {
+    font: inherit;
+    color: inherit;
+}
