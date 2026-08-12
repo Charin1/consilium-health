@@ -1,0 +1,99 @@
+{
+  "_comment": [
+    "Model providers and their catalogues.",
+    "",
+    "This is data, not code, because the thing that changes weekly is the model",
+    "list and the prices -- not the plumbing. Adding a model is an edit here.",
+    "",
+    "Prices are USD per million tokens and feed the console's cost readout, so",
+    "a wrong number here is a wrong number shown to the user as a dollar sign.",
+    "`intro_until` exists because introductory rates expire and an estimate",
+    "that keeps quoting the cheap price afterwards is worse than no estimate.",
+    "",
+    "`env_key` is the environment variable the credential is read from. Keys",
+    "are never returned by the API -- only whether one is present."
+  ],
+  "default_provider": "groq",
+  "providers": {
+    "anthropic": {
+      "label": "Anthropic",
+      "langchain_provider": "anthropic",
+      "env_key": "ANTHROPIC_API_KEY",
+      "requires_key": true,
+      "docs": "https://console.anthropic.com/settings/keys",
+      "default_model": "claude-sonnet-5",
+      "models": [
+        { "id": "claude-opus-5", "label": "Claude Opus 5", "context": 1000000, "input": 5.0, "output": 25.0, "tier": "frontier" },
+        { "id": "claude-sonnet-5", "label": "Claude Sonnet 5", "context": 1000000, "input": 3.0, "output": 15.0, "intro_input": 2.0, "intro_output": 10.0, "intro_until": "2026-08-31", "tier": "balanced" },
+        { "id": "claude-haiku-4-5", "label": "Claude Haiku 4.5", "context": 200000, "input": 1.0, "output": 5.0, "tier": "fast" }
+      ]
+    },
+    "openai": {
+      "label": "OpenAI",
+      "langchain_provider": "openai",
+      "env_key": "OPENAI_API_KEY",
+      "requires_key": true,
+      "docs": "https://platform.openai.com/api-keys",
+      "default_model": "gpt-4.1",
+      "models": [
+        { "id": "gpt-4.1", "label": "GPT-4.1", "context": 1000000, "input": 2.0, "output": 8.0, "tier": "frontier" },
+        { "id": "gpt-4.1-mini", "label": "GPT-4.1 mini", "context": 1000000, "input": 0.4, "output": 1.6, "tier": "balanced" },
+        { "id": "gpt-4o", "label": "GPT-4o", "context": 128000, "input": 2.5, "output": 10.0, "tier": "balanced" },
+        { "id": "gpt-4o-mini", "label": "GPT-4o mini", "context": 128000, "input": 0.15, "output": 0.6, "tier": "fast" }
+      ]
+    },
+    "google": {
+      "label": "Google Gemini",
+      "langchain_provider": "google_genai",
+      "env_key": "GOOGLE_API_KEY",
+      "requires_key": true,
+      "docs": "https://aistudio.google.com/apikey",
+      "default_model": "gemini-2.5-pro",
+      "models": [
+        { "id": "gemini-2.5-pro", "label": "Gemini 2.5 Pro", "context": 1048576, "input": 1.25, "output": 10.0, "tier": "frontier" },
+        { "id": "gemini-2.5-flash", "label": "Gemini 2.5 Flash", "context": 1048576, "input": 0.3, "output": 2.5, "tier": "balanced" },
+        { "id": "gemini-2.0-flash", "label": "Gemini 2.0 Flash", "context": 1048576, "input": 0.1, "output": 0.4, "tier": "fast" }
+      ]
+    },
+    "groq": {
+      "label": "Groq",
+      "langchain_provider": "groq",
+      "env_key": "GROQ_API_KEY",
+      "requires_key": true,
+      "docs": "https://console.groq.com/keys",
+      "default_model": "llama-3.3-70b-versatile",
+      "models": [
+        { "id": "llama-3.3-70b-versatile", "label": "Llama 3.3 70B", "context": 128000, "input": 0.59, "output": 0.79, "tier": "frontier" },
+        { "id": "llama-3.1-8b-instant", "label": "Llama 3.1 8B Instant", "context": 128000, "input": 0.05, "output": 0.08, "tier": "fast" },
+        { "id": "gemma2-9b-it", "label": "Gemma 2 9B", "context": 8192, "input": 0.2, "output": 0.2, "tier": "fast" }
+      ]
+    },
+    "ollama": {
+      "label": "Ollama (local)",
+      "langchain_provider": "ollama",
+      "env_key": null,
+      "requires_key": false,
+      "docs": "https://ollama.com/library",
+      "default_model": "llama3",
+      "local": true,
+      "models": [
+        { "id": "llama3", "label": "Llama 3", "context": 8192, "input": 0.0, "output": 0.0, "tier": "balanced" },
+        { "id": "llama3.1", "label": "Llama 3.1", "context": 128000, "input": 0.0, "output": 0.0, "tier": "balanced" },
+        { "id": "qwen2.5", "label": "Qwen 2.5", "context": 32768, "input": 0.0, "output": 0.0, "tier": "balanced" },
+        { "id": "mistral", "label": "Mistral", "context": 32768, "input": 0.0, "output": 0.0, "tier": "fast" }
+      ]
+    }
+  },
+  "_role_comment": [
+    "Which model tier each seat tier gets. The chair and the executives",
+    "synthesize across the whole table; specialists argue from one discipline.",
+    "That is the split -- not seniority theatre."
+  ],
+  "seat_tier_to_model_tier": {
+    "0": "frontier",
+    "1": "frontier",
+    "2": "balanced",
+    "3": "balanced",
+    "4": "balanced"
+  }
+}

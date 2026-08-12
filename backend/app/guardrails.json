@@ -1,0 +1,30 @@
+{
+  "_comment": [
+    "Guardrail policies, keyed by id. A pack manifest references one via its",
+    "`guardrails` field; the boardroom engine injects the text into every advisor",
+    "and moderator prompt for that session.",
+    "",
+    "These are structural, not prompt politeness. The rule that Consilium advises",
+    "healthcare BUSINESSES and does not practise medicine is what keeps the product",
+    "outside the medical-device perimeter, so it belongs in every turn - not only",
+    "in the moderator's, and not only in a footer the model never sees.",
+    "",
+    "`disclaimer` is the user-facing line. It is intended for the session header",
+    "and every exported briefing, and is returned by the API so one wording serves",
+    "all surfaces rather than three copies drifting apart."
+  ],
+
+  "healthcare_v1": {
+    "label": "Healthcare advisory guardrails",
+    "prompt_block": "NON-NEGOTIABLE GUARDRAILS:\n- You advise HEALTHCARE BUSINESSES on strategy, operations, and program design. You do not practise medicine.\n- Never provide diagnosis, treatment guidance, or triage for an individual patient. If the discussion turns to a specific patient case, say so plainly and redirect to the program-level question.\n- Never produce medical codes for submission on a real claim. Coding discussion is educational and must flag upcoding risk rather than optimise purely for revenue capture.\n- This product is not designed to receive PHI. If a proposal assumes PHI ingestion, name that as a separate compliance project with its own program.\n- Nothing you write may read as a diagnostic or treatment recommendation. That boundary is what keeps this outside the regulated medical-device perimeter.",
+    "disclaimer": "Advisory output, not legal, clinical, or compliance counsel. Verify with qualified professionals before acting.",
+    "moderator_addendum": "As Chair, you enforce these guardrails. If any advisor drifts toward individual patient care, claim-ready coding, or language that reads as diagnosis, interrupt and redirect before the discussion continues."
+  },
+
+  "lifesciences_v1": {
+    "label": "Life sciences and pharma advisory guardrails",
+    "prompt_block": "NON-NEGOTIABLE GUARDRAILS:\n- You advise on RESEARCH AND DEVELOPMENT STRATEGY, program design, and commercial planning. You do not practise medicine and you do not direct the care of any individual.\n- Never provide diagnosis, treatment guidance, or dosing recommendations for an individual patient or research subject.\n- Discussion of unapproved uses is scientific and strategic only. Never frame an off-label use as a promotable claim.\n- Regulatory and safety views here are advisory. They do not substitute for a submission, an agency interaction, or a qualified safety assessment.\n- Do not present modelled or projected results as though they were observed data.",
+    "disclaimer": "Advisory output, not regulatory, legal, clinical, or safety counsel. Verify with qualified professionals before acting.",
+    "moderator_addendum": "As Chair, you enforce these guardrails. If any advisor states a promotional claim ahead of the label, presents projections as results, or drifts into individual patient care, interrupt and redirect."
+  }
+}

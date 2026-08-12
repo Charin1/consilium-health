@@ -1,0 +1,169 @@
+{
+  "_comment": [
+    "Deterministic routing rules. The router that picks who sits in a room is",
+    "NOT an LLM call: the same brief must always produce the same room, or the",
+    "user cannot tell whether a different answer came from a different roster",
+    "or from model variance. See .agents/skills/engineering/ai-agents.md #1 and",
+    "design-lessons.md #3 (deterministic sandwich).",
+    "",
+    "Every rule is scored by how many of its patterns hit. Seats are ordered",
+    "within a rule by relevance, and that order is the tiebreak.",
+    "",
+    "Careful with bare nouns: 'pipeline' once routed 'ingestion pipeline' to the",
+    "sales bench, and a trailing \\b after 'risk.adjust' never matched",
+    "'risk-adjustment'. Patterns here are deliberately anchored."
+  ],
+  "fallback_seats": ["ceo", "strategist", "finance", "ops"],
+  "rules": [
+    {
+      "id": "risk_adjustment",
+      "label": "Risk adjustment & HCC capture",
+      "pattern": "\\b(raf|hcc|radv|mra)\\b|risk.adjust|chart.chase|suspecting|coding intensity",
+      "seats": ["vbc_retro", "medical_coder", "health_economics", "healthcare_counsel", "clinical_informatics"]
+    },
+    {
+      "id": "quality",
+      "label": "Quality measures & Stars",
+      "pattern": "\\b(hedis|stars?|mips|macra|ecqm|cahps)\\b|quality measure|care.gap",
+      "seats": ["quality_stars", "pop_health", "clinical_informatics", "patient_clinician_xp"]
+    },
+    {
+      "id": "ehr",
+      "label": "EHR integration & interoperability",
+      "pattern": "\\b(epic|cerner|meditech|athena|fhir|hl7|ccda|interop\\w*)\\b|\\behr\\b|\\bemr\\b|smart on fhir",
+      "seats": ["ehr_integration", "clinical_informatics", "patient_clinician_xp", "tech"]
+    },
+    {
+      "id": "revenue_cycle",
+      "label": "Revenue cycle & denials",
+      "pattern": "\\b(837|835|denials?|clearinghouse|rcm|ar days|underpay\\w*)\\b|revenue cycle|claims? (submission|scrub|edit)|prior auth\\w*",
+      "seats": ["rcm_ops", "medical_coder", "payer_contracting", "finance"]
+    },
+    {
+      "id": "payer",
+      "label": "Payer contracting & VBC economics",
+      "pattern": "\\b(payer|payors?|capitation|mlr|pmpm)\\b|shared savings|fee schedule|value.based|downside risk",
+      "seats": ["payer_contracting", "health_economics", "provider_gtm", "vbc_retro"]
+    },
+    {
+      "id": "privacy",
+      "label": "PHI, privacy & security posture",
+      "pattern": "\\b(hipaa|phi|baa|hitrust|breach)\\b|de.?identif\\w*|soc ?2|minimum necessary|\\bprivacy\\b",
+      "seats": ["hipaa_officer", "ciso", "healthcare_counsel", "clinical_informatics"]
+    },
+    {
+      "id": "clinical_ai",
+      "label": "Clinical AI safety & validation",
+      "pattern": "\\b(hallucinat\\w*|samd|drift)\\b|clinical (ai|algorithm|decision support)|validation cohort|subgroup (bias|performance)|model (bias|monitoring)",
+      "seats": ["clinical_ai_safety", "cmo_clinical", "ai_lead", "clinical_informatics"]
+    },
+    {
+      "id": "care_model",
+      "label": "Care model & population health",
+      "pattern": "\\b(sdoh|attribution|panel|triage|utilization)\\b|care (model|management|team|coordination)|risk stratif\\w*|population health",
+      "seats": ["pop_health", "cmo_clinical", "patient_clinician_xp", "health_economics"]
+    },
+    {
+      "id": "trials",
+      "label": "Trial design & operations",
+      "pattern": "\\b(trial|protocol|endpoints?|randomi[sz]\\w*|enrol\\w*|cro|sites?)\\b|phase ?(i{1,3}|1|2|3)\\b|inclusion criteria",
+      "seats": ["clinical_dev", "biostatistics", "clinical_ops", "reg_affairs"]
+    },
+    {
+      "id": "regulatory",
+      "label": "Regulatory strategy & submissions",
+      "pattern": "\\b(fda|ema|mhra|ind|nda|bla|anda|505b2|breakthrough|submission|filing)\\b|regulatory (path|strategy)|pre.?ind",
+      "seats": ["reg_affairs", "clinical_dev", "cmc_manufacturing", "healthcare_counsel"]
+    },
+    {
+      "id": "safety",
+      "label": "Pharmacovigilance & safety signals",
+      "pattern": "\\b(pharmacovigilance|icsr|rems|dsur|psur)\\b|adverse events?|safety (signal|database|reporting)",
+      "seats": ["pharmacovigilance", "reg_affairs", "cmo_clinical", "clinical_dev"]
+    },
+    {
+      "id": "market_access",
+      "label": "Market access & reimbursement",
+      "pattern": "\\b(formulary|hta|nice|icer|reimbursement|rebate|copay)\\b|gross.to.net|payer coverage|list price",
+      "seats": ["market_access", "health_economics", "pharma_commercial", "payer_contracting"]
+    },
+    {
+      "id": "cmc",
+      "label": "CMC & manufacturing",
+      "pattern": "\\b(cmc|cgmp|gmp|batch|potency|stability|fill.?finish)\\b|manufactur\\w*|tech transfer|scale.?up|supply chain",
+      "seats": ["cmc_manufacturing", "clinical_ops", "reg_affairs", "ops"]
+    },
+    {
+      "id": "medical_affairs",
+      "label": "Medical affairs & evidence generation",
+      "pattern": "\\b(kol|msl|publication|advisory board|congress)\\b|medical affairs|real.world evidence|\\brwe\\b|investigator.initiated",
+      "seats": ["medical_affairs", "clinical_dev", "market_access", "pharma_commercial"]
+    },
+    {
+      "id": "discovery",
+      "label": "Target discovery & validation",
+      "pattern": "\\b(target|assays?|screens?|hits?|leads?|orthogonal|knockdown|crispr)\\b|in vitro|in vivo|mechanism of action|hit.to.lead",
+      "seats": ["discovery_bio", "translational", "lab_ops", "bioinformatics"]
+    },
+    {
+      "id": "translational",
+      "label": "Translational & biomarkers",
+      "pattern": "\\b(biomarkers?|translational|pharmacodynamic|dose.ranging)\\b|pk.?pd|first.in.human|animal model|preclinical",
+      "seats": ["translational", "discovery_bio", "clinical_dev", "biostatistics"]
+    },
+    {
+      "id": "omics",
+      "label": "Omics & computational biology",
+      "pattern": "\\b(omics|genomics?|sequencing|transcriptom\\w*|proteom\\w*|bioinformatics?|batch effect)\\b|rna.?seq|single.?cell|multi.?omic",
+      "seats": ["bioinformatics", "translational", "ai_lead", "clinical_informatics"]
+    },
+    {
+      "id": "lab_ops",
+      "label": "Lab operations & reproducibility",
+      "pattern": "\\b(lims|reagents?|instrument|throughput|reproducib\\w*|automation)\\b|lab (ops|capacity|bench)|wet lab",
+      "seats": ["lab_ops", "discovery_bio", "ops", "research_compliance"]
+    },
+    {
+      "id": "research_compliance",
+      "label": "Research compliance & ethics",
+      "pattern": "\\b(irb|iacuc|gcp|glp|consent|dua)\\b|research compliance|human subjects|data use agreement",
+      "seats": ["research_compliance", "healthcare_counsel", "clinical_ops", "hipaa_officer"]
+    },
+    {
+      "id": "ip",
+      "label": "IP & freedom to operate",
+      "pattern": "\\b(patents?|fto|licensing|prosecution|prior art)\\b|freedom to operate|composition of matter|intellectual property",
+      "seats": ["ip_strategy", "legal", "discovery_bio", "ceo"]
+    },
+    {
+      "id": "gtm",
+      "label": "Go-to-market & commercial",
+      "pattern": "\\b(quota|churn|pilots?|procurement|rfp|deals?|renewals?)\\b|go.to.market|\\bgtm\\b|sales (cycle|motion|pipeline)|land and expand",
+      "seats": ["provider_gtm", "sales", "growth", "customer_success"]
+    },
+    {
+      "id": "money",
+      "label": "Capital, burn & unit economics",
+      "pattern": "\\b(burn|runway|margins?|budget|cash|capital|valuation|dilution)\\b|unit econom\\w*|series [a-e]\\b|raise a round",
+      "seats": ["finance", "ceo", "growth", "health_economics"]
+    },
+    {
+      "id": "platform",
+      "label": "Platform & engineering",
+      "pattern": "\\b(architectur\\w*|infrastructur\\w*|latency|throughput|uptime|apis?|migration)\\b|tech stack|data platform|build vs\\.? buy",
+      "seats": ["tech", "ai_lead", "product", "ops"]
+    },
+    {
+      "id": "people",
+      "label": "Org design & people",
+      "pattern": "\\b(hiring|headcount|attrition|retention|comp|onboarding)\\b|org (design|chart|structure)|team structure",
+      "seats": ["ops", "ceo", "strategist"]
+    },
+    {
+      "id": "legal",
+      "label": "Contracts & liability",
+      "pattern": "\\b(indemnif\\w*|liability|warrant\\w*|msa|\\bsla\\b|termination)\\b|contract terms|master service",
+      "seats": ["legal", "ciso", "healthcare_counsel", "finance"]
+    }
+  ]
+}

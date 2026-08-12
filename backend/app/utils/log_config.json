@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "disable_existing_loggers": false,
+  "formatters": {
+    "otel_json": {
+      "()": "app.utils.logger.OTelJsonFormatter",
+      "service_name": "consilium-backend"
+    },
+    "console_text": {
+      "format": "%(asctime)s | %(levelname)-8s | %(name)-20s | %(message)s",
+      "datefmt": "%H:%M:%S"
+    }
+  },
+  "handlers": {
+    "console": {
+      "class": "logging.StreamHandler",
+      "level": "INFO",
+      "formatter": "console_text",
+      "stream": "ext://sys.stdout"
+    },
+    "file_main": {
+      "class": "logging.handlers.RotatingFileHandler",
+      "level": "INFO",
+      "formatter": "otel_json",
+      "filename": "../logs/backend/backend.log",
+      "maxBytes": 10485760,
+      "backupCount": 5,
+      "encoding": "utf-8"
+    },
+    "file_error": {
+      "class": "logging.handlers.RotatingFileHandler",
+      "level": "ERROR",
+      "formatter": "otel_json",
+      "filename": "../logs/backend/backend_error.log",
+      "maxBytes": 10485760,
+      "backupCount": 5,
+      "encoding": "utf-8"
+    }
+  },
+  "loggers": {
+    "": {
+      "handlers": [
+        "console",
+        "file_main",
+        "file_error"
+      ],
+      "level": "INFO"
+    },
+    "uvicorn": {
+      "handlers": [
+        "console",
+        "file_main",
+        "file_error"
+      ],
+      "level": "INFO",
+      "propagate": false
+    },
+    "uvicorn.error": {
+      "handlers": [
+        "console",
+        "file_main",
+        "file_error"
+      ],
+      "level": "INFO",
+      "propagate": false
+    },
+    "uvicorn.access": {
+      "handlers": [
+        "console",
+        "file_main",
+        "file_error"
+      ],
+      "level": "INFO",
+      "propagate": false
+    },
+    "consilium": {
+      "handlers": [
+        "console",
+        "file_main",
+        "file_error"
+      ],
+      "level": "INFO",
+      "propagate": false
+    }
+  }
+}

@@ -1,0 +1,91 @@
+{
+  "_comment": [
+    "Phase ladders, keyed by id. A pack manifest references one by name via its",
+    "`phase_ladder` field; the boardroom engine resolves it at construction time.",
+    "",
+    "Ladders belong to the KIND of decision, not to the domain - which is why they",
+    "live in their own registry rather than inline in pack.json. A healthcare",
+    "session deciding a pricing question should be able to borrow the pricing",
+    "ladder without leaving its pack.",
+    "",
+    "`focus_warning` replaces the hardcoded product-build nudge that used to sit in",
+    "the dialogue rules. It is the one sentence that keeps a debate from skipping",
+    "ahead, and it is wrong if it talks about dev timelines in a clinical session."
+  ],
+
+  "product_build": {
+    "label": "Product build",
+    "phases": [
+      {
+        "title": "Product Scope & Core Feature Breakdown",
+        "guidance": "Define WHAT we are building, key modules, and user requirements before diving into tech stack."
+      },
+      {
+        "title": "Technical Architecture, Data Pipeline & Compliance",
+        "guidance": "Discuss tech stack, database schemas, security, and regulatory constraints."
+      },
+      {
+        "title": "Operational Execution, Cost & Go-To-Market Strategy",
+        "guidance": "Discuss dev timeline, team allocation, budget limits, and launch plan."
+      }
+    ],
+    "focus_warning": "Do NOT jump ahead into dev timelines or infrastructure choices before defining what is actually being built."
+  },
+
+  "clinical_program": {
+    "label": "Healthcare program",
+    "phases": [
+      {
+        "title": "Clinical Validity & Data Feasibility",
+        "guidance": "Is the clinical premise sound? What data exists, where does it live, and what is its real quality? Who is the patient population and how are they attributed?"
+      },
+      {
+        "title": "Compliance, Privacy & Integration",
+        "guidance": "Regulatory classification, PHI handling, BAAs, de-identification strategy, EHR integration path and timeline, security review posture."
+      },
+      {
+        "title": "Reimbursement, Contracting & Deployment",
+        "guidance": "Who pays and under what mechanism, contracting path, ROI proof, pilot design, clinician adoption and workflow rollout."
+      }
+    ],
+    "focus_warning": "Do NOT jump ahead to reimbursement or rollout before the clinical premise and the data behind it have been established."
+  },
+
+  "drug_development": {
+    "label": "Drug development",
+    "phases": [
+      {
+        "title": "Target, Evidence & Development Strategy",
+        "guidance": "Is the target validated? What is the primary endpoint, the population, and the effect size the trial is powered to detect?"
+      },
+      {
+        "title": "Regulatory Path, Trial Execution & Safety",
+        "guidance": "Filing pathway and agency expectations, enrollment feasibility, statistical analysis plan, manufacturing readiness, and the safety commitments that follow approval."
+      },
+      {
+        "title": "Access, Launch & Lifecycle",
+        "guidance": "Payer value story and net price, launch readiness across supply and field force, exclusivity runway and loss-of-exclusivity planning."
+      }
+    ],
+    "focus_warning": "Do NOT jump ahead to launch or forecast before the endpoint, the regulatory path, and the safety profile are settled."
+  },
+
+  "research_program": {
+    "label": "Research program",
+    "phases": [
+      {
+        "title": "Target Validation & Experimental Design",
+        "guidance": "What is the evidence the target is real? Is the model relevant to human disease, and has the key result been reproduced independently?"
+      },
+      {
+        "title": "Translatability, Data Quality & Compliance",
+        "guidance": "Biomarkers and target engagement, batch effects and analytical rigour, sample provenance and consent, and what the lab can actually run."
+      },
+      {
+        "title": "Candidate Selection, IP & Handoff",
+        "guidance": "Criteria for advancing a candidate, freedom to operate and filing timing, and what development needs from research to take it forward."
+      }
+    ],
+    "focus_warning": "Do NOT jump ahead to candidate selection before target validation and reproducibility have been addressed."
+  }
+}
