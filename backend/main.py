@@ -85,7 +85,12 @@ async def lifespan(app: FastAPI):
         "Providers with a credential: %s",
         ", ".join(with_keys) if with_keys else "none - set one in .env or Settings",
     )
+
+    from app.services.langfuse_client import init_langfuse, shutdown_langfuse
+
+    init_langfuse()
     yield
+    shutdown_langfuse()
     logger.info("Consilium Backend shutting down")
 
 
@@ -98,7 +103,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],
+    allow_origins=["http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

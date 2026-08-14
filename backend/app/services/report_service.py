@@ -114,6 +114,8 @@ class ReportService:
                 system_prompt="You are a management consulting partner. Return concise, implementation-ready recommendations with measurable KPIs.",
                 user_prompt=prompt,
                 max_tokens=700,
+                node="report_summary",
+                session_id=report.get("id"),
             )
         except Exception as exc:  # pylint: disable=broad-except
             logger.warning("LLM summary failed for report=%s: %s", report["id"][:8], exc)

@@ -19,7 +19,7 @@ VENV="$BACKEND/.venv"
 PY="$VENV/bin/python"
 
 BACKEND_PORT="${PORT:-8000}"
-FRONTEND_PORT=3000
+FRONTEND_PORT=5173
 
 # Match the interpreter the project is developed against. Falls back through
 # what is actually installed rather than assuming `python3` is new enough -

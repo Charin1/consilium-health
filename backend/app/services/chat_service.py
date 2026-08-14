@@ -898,8 +898,10 @@ class ChatService:
                     overlap=3,
                     temperature=0.3,
                     max_tokens=4000,
+                    node="synthesize_session",
+                    session_id=session_id,
                 )
-                
+
                 self._create_message(
                     session_id=session_id,
                     workspace_id=workspace_id,
@@ -971,10 +973,7 @@ class ChatService:
     ) -> ChatMessageModel:
         msg_id = str(uuid4())
         meta = metadata or {}
-        
-        # Inject Langfuse Tracing Schema
-        meta["trace_id"] = session_id
-        meta["span_id"] = msg_id
+
         meta["provider"] = self.config.provider
         meta["model"] = getattr(self.llm_client.last_result, "model", None) or self.config.model
         # Degradation travels with the message. A canned turn that looks like
@@ -984,6 +983,18 @@ class ChatService:
         if last is not None and last.degraded:
             meta["degraded"] = True
             meta["degraded_reason"] = last.reason
+        if last is not None:
+            # Real Langfuse linkage when tracing is on, not a guessed id --
+            # `generate_detailed` (llm_client.py) is the only place that knows
+            # the actual trace/observation this message came from.
+            if last.cost_usd is not None:
+                meta["cost_usd"] = last.cost_usd
+            if last.usage:
+                meta["usage"] = last.usage
+            if last.langfuse_trace_id:
+                meta["langfuse_trace_id"] = last.langfuse_trace_id
+            if last.langfuse_url:
+                meta["langfuse_url"] = last.langfuse_url
 
         msg = ChatMessageModel(
             id=msg_id,
@@ -998,18 +1009,6 @@ class ChatService:
         with get_session() as db:
             db.add(msg)
             db.flush()
-
-        from app.services.tracing import trace_exporter
-        trace_exporter.log_generation(
-            trace_id=session_id,
-            span_id=msg_id,
-            name=f"turn:{agent_id or role}",
-            model=meta["model"],
-            provider=meta["provider"],
-            prompt="",
-            completion=content,
-            metadata=meta,
-        )
 
         return msg
 
@@ -1607,6 +1606,9 @@ class ChatService:
                 user_prompt=prompt,
                 temperature=0.5 if not is_summary else 0.3,
                 max_tokens=5000,
+                node="chair_recap" if is_summary else "advisor_turn",
+                persona_id=persona.get("id"),
+                pack=persona.get("pack"),
             ).strip()
         except Exception as exc:
             logger.warning("Unified LLM call failed: %s", exc)
@@ -1804,7 +1806,7 @@ class ChatService:
 
     def _update_memory(self, session_id: str, workspace_id: str) -> None:
         history = self._recent_history(session_id, workspace_id)
-        summary = self._build_memory_summary(history)
+        summary = self._build_memory_summary(history, session_id=session_id)
 
         with get_session() as db:
             row = (
@@ -1824,7 +1826,8 @@ class ChatService:
             db.add(row)
             db.flush()
 
-    def _build_memory_summary(self, history: List[Dict[str, str]]) -> Dict[str, Any]:
+    def _build_memory_summary(self, history: List[Dict[str, str]],
+                              *, session_id: Optional[str] = None) -> Dict[str, Any]:
         if not history:
             return {"summary": None, "key_points": [], "open_questions": []}
 
@@ -1847,6 +1850,8 @@ class ChatService:
                 overlap=3,
                 temperature=0.3,
                 max_tokens=900,
+                node="memory_summary",
+                session_id=session_id,
             )
 
             consensus_parts = []

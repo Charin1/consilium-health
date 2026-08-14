@@ -5,14 +5,14 @@
 ## Getting it running
 
 ```sh
-./start.sh              # backend :8000 + frontend :3000
+./start.sh              # backend :8000 + frontend :5173
 ./start.sh backend      # backend only
 ./start.sh frontend     # frontend only
 ./start.sh check        # health check, roster count, config posture
 ```
 
 First run creates the venv, installs dependencies, and bootstraps `.env` from
-`.env.example`. Open **http://localhost:3000**.
+`.env.example`. Open **http://localhost:5173**.
 
 ### Point it at a model
 
@@ -43,6 +43,23 @@ CONSILIUM_PACKS=core,healthcare     # the clinical ladder + healthcare guardrail
 The **last** pack listed owns the phase ladder and the guardrail policy. This is
 only the default — a session can declare its own packs, and the pack chips in the
 header switch them live.
+
+### See what the models actually said (optional)
+
+```sh
+./scripts/setup-langfuse.sh
+```
+
+One-time: clones and starts a local, self-hosted [Langfuse](https://langfuse.com)
+instance (Docker) and wires its keys into `backend/.env`. From then on every
+advisor turn, chair synthesis, and report is traced — the real prompt, the
+completion, per-node cost and token usage — at **http://localhost:3000**.
+Entirely optional: skip it and the app runs exactly the same, just untraced.
+Re-running the script is safe — it won't re-provision or duplicate config.
+
+To stop it later: `cd ../langfuse && docker compose stop` (or the ■ button in
+Docker Desktop). Data persists either way; only `docker compose down -v`
+deletes it.
 
 ---
 
@@ -288,6 +305,7 @@ something to route around.
 | **Stop** doesn't end the round instantly | Expected. It ends after the current speaker's turn, not mid-generation |
 | A round is stuck **running** with no progress | The backend restarted mid-round without reaping it, or its background thread died silently — check `logs/backend/` for the round's id |
 | Ollama shows "not reachable" | Ollama is not running. `ollama serve` |
+| No traces in Langfuse | Either it's not set up (`./scripts/setup-langfuse.sh`) or its containers aren't running (`cd ../langfuse && docker compose up -d`) — the app runs fine either way, tracing just goes silent |
 
 Logs: `logs/backend/` and `logs/frontend/`.
 

@@ -129,6 +129,7 @@ def pick_seats(
         temperature=0.0,   # same brief, same room, as far as the model allows
         max_tokens=500,
         seat_tier=1,
+        node="seat_router",
     )
     if result.degraded:
         return {"seat_ids": [], "reason": "", "ok": False, "error": result.reason}

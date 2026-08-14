@@ -344,6 +344,38 @@ only call Groq, quoting roughly ten times the real number.
 
 ---
 
+## 6a. Observability
+
+`generate_detailed` (`llm_client.py`) is the one place every provider call
+passes through, so it is also the one place tracing lives — nothing depends on
+`boardroom_graph.py`, `chat_service.py`, `orchestrator.py`, or `report_service.py`
+remembering to instrument their own call. Each call, when Langfuse is
+configured, becomes one Langfuse generation carrying the real prompt,
+completion, model, token usage, and the same per-model price the cost
+estimate above reads from — plus `node`/`session_id`/`persona_id`/`pack`
+context the caller passes in, which is what groups a whole boardroom session
+into one Langfuse session and answers "which stage is spending the money" on
+the cost dashboard.
+
+Two things this is deliberately not:
+
+- **Not required.** No Langfuse keys configured means no tracing and an
+  identical app — every Langfuse call in `llm_client.py` is wrapped so an
+  outage or a bad host degrades to silence, never a failed turn.
+- **Not a second copy of the same data.** `ChatMessageModel.message_meta`
+  keeps a cost/usage summary and a link back to the Langfuse trace, not the
+  prompt itself — the full generation lives in Langfuse, not duplicated into
+  `consilium.db`.
+
+Self-hosted only: the client (`app/services/langfuse_client.py`) refuses to
+trace against Langfuse's cloud endpoint without an explicit host, and masks
+prompts/completions (emails, SSNs, phone numbers, MRNs) before export via a
+`mask` callable this repo defines — Langfuse's SDK provides the hook, not the
+redaction logic. `./scripts/setup-langfuse.sh` stands up a local instance and
+wires the keys in.
+
+---
+
 ## 7. Async seat work
 
 `job_service.py` + `seat_jobs`. The floor asks *what is this person doing right
@@ -609,4 +641,4 @@ it fires fails the suite.
 ---
 
 Usage: [`usage.md`](usage.md) ·
-Build guidance: [`../.agents/skills/engineering/`](../.agents/skills/engineering/README.md)
+Build guidance: `.agents/skills/engineering/` (local only, gitignored — not in the pushed repo)

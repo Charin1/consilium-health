@@ -178,6 +178,10 @@ class BoardroomGraphEngine:
             temperature=0.4,
             max_tokens=5000,
             seat_tier=persona.get("tier", 2),
+            node="advisor_turn",
+            session_id=state.get("session_id"),
+            persona_id=speaker_id,
+            pack=persona.get("pack"),
         )
 
         clean = reply.strip()
@@ -220,6 +224,8 @@ class BoardroomGraphEngine:
             temperature=0.3,
             max_tokens=4000,
             seat_tier=0,
+            node="chair_synthesis",
+            session_id=state.get("session_id"),
         )
         return {
             "current_speaker": "moderator",

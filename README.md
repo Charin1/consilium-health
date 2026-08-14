@@ -150,15 +150,38 @@ readout, so the quote follows the provider you are actually on.
 
 ---
 
+## Observability
+
+Every advisor turn, chair synthesis, mission strategy, and report summary is traced through
+[Langfuse](https://langfuse.com) — the actual prompt, the completion, per-node cost and token
+usage, and how a run degraded if it did. One call site (`UnifiedLLMClient.generate_detailed` in
+`backend/app/services/llm_client.py`) instruments every provider, so nothing depends on each
+call site remembering to trace itself.
+
+```sh
+./scripts/setup-langfuse.sh   # one-time: clones, starts, auto-provisions keys into backend/.env
+```
+
+Self-hosted only — the client refuses to trace against Langfuse's cloud endpoint without an
+explicit opt-in, since a boardroom session carries clinical/payer-specific content. Prompts and
+completions are masked (emails, SSNs, phone numbers, MRNs) before they leave the process, via a
+`mask` callable this repo defines and hands to the Langfuse SDK, not something Langfuse provides
+itself. Tracing is entirely best-effort: unreachable or misconfigured, the app runs identically
+with it off.
+
+---
+
 ## Where things are
 
 | | |
 | :--- | :--- |
 | What it is and why it's shaped this way | [`docs/architecture.md`](docs/architecture.md) |
 | How to use it | [`docs/usage.md`](docs/usage.md) |
-| Contracts & scar tissue | [`.agents/blueprint.md`](.agents/blueprint.md) |
-| Roster design & routing | [`docs/planning/org-roster.md`](docs/planning/org-roster.md) |
-| Original vertical spec | [`docs/planning/consilium-health.prompt.md`](docs/planning/consilium-health.prompt.md) |
-| Build guidance | [`.agents/skills/engineering/`](.agents/skills/engineering/README.md) |
+| Contracts & scar tissue | `.agents/blueprint.md` * |
+| Roster design & routing | `docs/planning/org-roster.md` * |
+| Original vertical spec | `docs/planning/consilium-health.prompt.md` * |
+| Build guidance | `.agents/skills/engineering/` * |
 | Personas | `backend/app/personas/<pack>/` |
 | Routing rules | `backend/app/routing_rules.json` |
+
+\* local only — `.agents/` and `docs/planning/` are gitignored, not in the pushed repo
