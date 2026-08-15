@@ -226,95 +226,120 @@ class UnifiedLLMClient:
         started = time.perf_counter()
 
         from app.services.langfuse_client import cost_usd, get_langfuse
+        from app.services.telemetry import current_trace_id, span as otel_span_cm
 
-        langfuse = get_langfuse()
-        generation = None
-        # Both entered manually (not `with`) so the same try/except/finally
-        # shape below can stay a single control-flow path for the traced and
-        # untraced cases. Unwound in reverse in the `finally` block.
-        _open_ctxs: List[Any] = []
-        if langfuse is not None:
-            try:
-                from langfuse import propagate_attributes
+        # The OTel span always exists (no-op if OTel isn't configured) and
+        # wraps the Langfuse generation, not the other way round, so its
+        # trace id is available to attach as Langfuse metadata below. This is
+        # the cross-link: a trace found in Tempo carries the Langfuse trace
+        # id as a span attribute, and the Langfuse generation carries the
+        # OTel trace id as metadata -- paste either into the other tool.
+        with otel_span_cm(
+            "llm.call", **{
+                "llm.node": node, "llm.provider": provider_id, "llm.model": model_id,
+                "llm.persona_id": persona_id, "llm.pack": pack,
+            }
+        ) as otel_span:
+            otel_trace_id = current_trace_id()
 
-                gen_cm = langfuse.start_as_current_observation(
-                    name=node,
-                    as_type="generation",
-                    model=f"{provider_id}/{model_id}",
-                    input={"system": system_prompt, "user": user_prompt},
-                    model_parameters={"temperature": temperature, "max_tokens": max_tokens},
-                    metadata={"seat_tier": seat_tier, "persona_id": persona_id, "pack": pack},
-                )
-                generation = gen_cm.__enter__()
-                _open_ctxs.append(gen_cm)
-
-                # session_id/tags are trace-level attributes; propagate_attributes
-                # is the mechanism for that in this SDK (there is no
-                # generation.update_trace()). Entered *inside* the observation
-                # so it still stamps the already-active root span (per its
-                # docstring), matching the nesting in Langfuse's own example.
-                prop_cm = propagate_attributes(
-                    session_id=session_id,
-                    tags=[t for t in [f"node:{node}", f"pack:{pack}" if pack else None,
-                                      *(tags or [])] if t] or None,
-                )
-                prop_cm.__enter__()
-                _open_ctxs.append(prop_cm)
-            except Exception:
-                logger.debug("Langfuse generation start failed", exc_info=True)
-                generation = None
-
-        try:
-            chat = get_chat_model(
-                provider_id,
-                model_id,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                base_url=getattr(self.config, "ollama_base_url", None),
-            )
-            response = chat.invoke([
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ])
-            text = _text_from(response).strip()
-            if not text:
-                raise RuntimeError("provider returned an empty message")
-            usage = _usage_from(response)
-            cost, priced = cost_usd(provider_id, model_id, usage)
-            result = GenerationResult(
-                text=text, provider=provider_id, model=model_id,
-                usage=usage,
-                cost_usd=cost if priced else None,
-                latency_ms=(time.perf_counter() - started) * 1000,
-            )
-            if generation is not None:
-                self._finish_generation(generation, result)
-        except ProviderUnavailable as exc:
-            logger.error("Provider unavailable (%s/%s): %s", provider_id, model_id, exc)
-            result = GenerationResult(
-                text=fallback if fallback is not None else _degraded_notice(str(exc)),
-                provider=provider_id, model=model_id,
-                degraded=True, reason=str(exc),
-                latency_ms=(time.perf_counter() - started) * 1000,
-            )
-            if generation is not None:
-                self._finish_generation(generation, result, error=str(exc))
-        except Exception as exc:
-            logger.warning("Generation failed (%s/%s): %s", provider_id, model_id, exc)
-            result = GenerationResult(
-                text=fallback if fallback is not None else _degraded_notice(str(exc)),
-                provider=provider_id, model=model_id,
-                degraded=True, reason=f"{exc.__class__.__name__}: {exc}",
-                latency_ms=(time.perf_counter() - started) * 1000,
-            )
-            if generation is not None:
-                self._finish_generation(generation, result, error=f"{exc.__class__.__name__}: {exc}")
-        finally:
-            for ctx in reversed(_open_ctxs):
+            langfuse = get_langfuse()
+            generation = None
+            # Both entered manually (not `with`) so the same try/except/finally
+            # shape below can stay a single control-flow path for the traced
+            # and untraced cases. Unwound in reverse in the `finally` block.
+            _open_ctxs: List[Any] = []
+            if langfuse is not None:
                 try:
-                    ctx.__exit__(None, None, None)
+                    from langfuse import propagate_attributes
+
+                    gen_cm = langfuse.start_as_current_observation(
+                        name=node,
+                        as_type="generation",
+                        model=f"{provider_id}/{model_id}",
+                        input={"system": system_prompt, "user": user_prompt},
+                        model_parameters={"temperature": temperature, "max_tokens": max_tokens},
+                        metadata={
+                            "seat_tier": seat_tier, "persona_id": persona_id, "pack": pack,
+                            "otel_trace_id": otel_trace_id,
+                        },
+                    )
+                    generation = gen_cm.__enter__()
+                    _open_ctxs.append(gen_cm)
+
+                    # session_id/tags are trace-level attributes; propagate_attributes
+                    # is the mechanism for that in this SDK (there is no
+                    # generation.update_trace()). Entered *inside* the observation
+                    # so it still stamps the already-active root span (per its
+                    # docstring), matching the nesting in Langfuse's own example.
+                    prop_cm = propagate_attributes(
+                        session_id=session_id,
+                        tags=[t for t in [f"node:{node}", f"pack:{pack}" if pack else None,
+                                          *(tags or [])] if t] or None,
+                    )
+                    prop_cm.__enter__()
+                    _open_ctxs.append(prop_cm)
                 except Exception:
-                    logger.debug("Langfuse context close failed", exc_info=True)
+                    logger.debug("Langfuse generation start failed", exc_info=True)
+                    generation = None
+
+            try:
+                chat = get_chat_model(
+                    provider_id,
+                    model_id,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    base_url=getattr(self.config, "ollama_base_url", None),
+                )
+                response = chat.invoke([
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ])
+                text = _text_from(response).strip()
+                if not text:
+                    raise RuntimeError("provider returned an empty message")
+                usage = _usage_from(response)
+                cost, priced = cost_usd(provider_id, model_id, usage)
+                result = GenerationResult(
+                    text=text, provider=provider_id, model=model_id,
+                    usage=usage,
+                    cost_usd=cost if priced else None,
+                    latency_ms=(time.perf_counter() - started) * 1000,
+                )
+                if generation is not None:
+                    self._finish_generation(generation, result)
+            except ProviderUnavailable as exc:
+                logger.error("Provider unavailable (%s/%s): %s", provider_id, model_id, exc)
+                result = GenerationResult(
+                    text=fallback if fallback is not None else _degraded_notice(str(exc)),
+                    provider=provider_id, model=model_id,
+                    degraded=True, reason=str(exc),
+                    latency_ms=(time.perf_counter() - started) * 1000,
+                )
+                if generation is not None:
+                    self._finish_generation(generation, result, error=str(exc))
+            except Exception as exc:
+                logger.warning("Generation failed (%s/%s): %s", provider_id, model_id, exc)
+                result = GenerationResult(
+                    text=fallback if fallback is not None else _degraded_notice(str(exc)),
+                    provider=provider_id, model=model_id,
+                    degraded=True, reason=f"{exc.__class__.__name__}: {exc}",
+                    latency_ms=(time.perf_counter() - started) * 1000,
+                )
+                if generation is not None:
+                    self._finish_generation(generation, result, error=f"{exc.__class__.__name__}: {exc}")
+            finally:
+                for ctx in reversed(_open_ctxs):
+                    try:
+                        ctx.__exit__(None, None, None)
+                    except Exception:
+                        logger.debug("Langfuse context close failed", exc_info=True)
+
+            if result.langfuse_trace_id:
+                otel_span.set_attribute("langfuse.trace.id", result.langfuse_trace_id)
+            if result.langfuse_url:
+                otel_span.set_attribute("langfuse.trace.url", result.langfuse_url)
+            if result.degraded:
+                otel_span.set_attribute("llm.degraded", True)
 
         self.last_result = result
         return result

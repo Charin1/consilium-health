@@ -101,6 +101,20 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Must run here, immediately after construction -- NOT inside lifespan().
+# Starlette.__call__ builds and *caches* app.middleware_stack on its very
+# first invocation, and that first invocation is the ASGI lifespan-startup
+# call itself (before lifespan()'s own body runs). Patching
+# build_middleware_stack from inside lifespan() is therefore always too late:
+# the stack is already built with the unpatched method by the time it runs,
+# and FastAPI spans silently never appear (SQLAlchemy/httpx instrumentation
+# patch their libraries directly and are unaffected by this -- only the
+# FastAPI ASGI-middleware patch has this ordering requirement).
+from app.services.telemetry import setup_telemetry  # noqa: E402
+from app.db.database import engine as _db_engine  # noqa: E402
+
+setup_telemetry(app, engine=_db_engine)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],

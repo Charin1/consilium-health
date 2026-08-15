@@ -169,6 +169,23 @@ completions are masked (emails, SSNs, phone numbers, MRNs) before they leave the
 itself. Tracing is entirely best-effort: unreachable or misconfigured, the app runs identically
 with it off.
 
+Langfuse traces the LLM calls specifically. Everything else in a request — HTTP handling, SQL
+queries, outbound calls — goes through a separate OpenTelemetry pipeline
+(Collector → Tempo → Grafana), so a slow response can be attributed to "the database" or "the LLM
+call" instead of guessed at:
+
+```sh
+./scripts/setup-tempo-grafana.sh   # one-time: starts the stack, writes OTEL_* into backend/.env
+```
+
+The two aren't disconnected: `generate_detailed` opens the OTel span *before* the Langfuse
+generation, and Langfuse's SDK (itself OTel-based) joins that ambient trace rather than starting
+its own — so the LLM call in Grafana/Tempo and the prompt/completion in Langfuse share the exact
+same trace id. Paste it into either tool's search and find the same event.
+
+Traces-only, deliberately — no Prometheus, no Loki, both would need their own justification this
+project hasn't hit yet.
+
 ---
 
 ## Where things are

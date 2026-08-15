@@ -374,6 +374,104 @@ prompts/completions (emails, SSNs, phone numbers, MRNs) before export via a
 redaction logic. `./scripts/setup-langfuse.sh` stands up a local instance and
 wires the keys in.
 
+### General tracing (OTel → Tempo → Grafana)
+
+Langfuse only sees LLM calls. A second, separate pipeline — `app/services/
+telemetry.py` — traces everything else: HTTP requests (FastAPI
+auto-instrumentation), SQL queries (SQLAlchemy), outbound calls (httpx).
+Without it, a slow response can only be attributed to "somewhere in the
+request"; with it, the trace shows whether the time went to the database, an
+external call, or the LLM. `./scripts/setup-tempo-grafana.sh` stands up the
+stack (Collector → Tempo → Grafana, traces-only — no Prometheus, no Loki,
+both would need their own justification this project hasn't hit yet) and
+writes `OTEL_*` into `backend/.env`.
+
+**`setup_telemetry(app, engine=...)` is called at module level in `main.py`,
+immediately after `app = FastAPI(...)` — not inside `lifespan()`, and this
+placement is load-bearing, not style.** `Starlette.__call__` builds and
+*caches* `app.middleware_stack` on its very first invocation:
+
+```python
+async def __call__(self, scope, receive, send):
+    if self.middleware_stack is None:
+        self.middleware_stack = self.build_middleware_stack()
+    await self.middleware_stack(scope, receive, send)
+```
+
+That first invocation is the ASGI **lifespan-startup** call itself — Starlette
+doesn't special-case `scope["type"] == "lifespan"` before this check. If
+`FastAPIInstrumentor.instrument_app()` (which patches
+`app.build_middleware_stack`) runs from *inside* `lifespan()`'s body, the
+patch always arrives too late: `middleware_stack` was already built from the
+*unpatched* method as part of dispatching to `lifespan()` in the first place,
+and it's never rebuilt afterward. The symptom was exactly this: `app.
+_is_instrumented_by_opentelemetry` reads `True`, no exception is logged
+anywhere, `FastAPIInstrumentor` genuinely runs — and yet zero HTTP spans ever
+appear, for any request, silently. SQLAlchemy and httpx instrumentation are
+unaffected (they patch their own libraries directly, independent of any
+specific app's middleware stack), which is why DB/outbound spans could exist
+while HTTP spans didn't, before this was fixed — a confusing half-working
+state that looks like a sampling or config issue rather than an
+initialization-order bug. `init_langfuse()` doesn't have this constraint (it
+never touches `app.build_middleware_stack`), so it stays in `lifespan()`.
+
+**The two pipelines share a trace id, not just a metadata pointer.**
+`generate_detailed` opens the OTel span (`telemetry.span("llm.call", ...)`)
+*before* starting the Langfuse generation. Langfuse's own SDK is OTel-based
+internally, and when a valid OTel span is already active it joins that trace
+rather than starting a new one — so the same hex trace id identifies the call
+in both Tempo and Langfuse. Paste it into either tool's search.
+
+One thing that looks like a bug and isn't: starting both pipelines logs
+`WARNING opentelemetry.trace Overriding of current TracerProvider is not
+allowed`. Langfuse's SDK claims the process-wide global `TracerProvider` first
+(`init_langfuse()` runs in `lifespan()`, before the app ever handles a
+request; `setup_telemetry()` has already run by then, at module level), and
+OTel only allows that global to be set once. `telemetry.py` doesn't depend on
+it: it keeps its own `_tracer_provider` reference and every instrumentor
+(`FastAPIInstrumentor`, `HTTPXClientInstrumentor`, `SQLAlchemyInstrumentor`)
+is passed that reference explicitly, so spans still export to Tempo
+regardless of which provider is process-global. The warning is expected and
+harmless — see the comment on `_tracer_provider` in `telemetry.py`.
+
+Two operational gotchas worth knowing before assuming something's broken:
+
+- **Tempo's `/api/search` with no explicit `start`/`end` doesn't reliably
+  include "just now".** Pass an explicit time range
+  (`?start={unix}&end={unix}`) when checking whether a trace you just
+  produced actually arrived — an unfiltered query with only `limit` can come
+  back empty or stale even though the trace exists.
+- **The Collector's tail-sampling `baseline` policy is 100% for this local
+  stack** (`scripts/setup-tempo-grafana.sh`), deliberately — a lower
+  percentage (the usual production default) means most individual traces get
+  dropped by design, which looks identical to "tracing is broken" on a
+  single-developer machine. Lower it if this stack ever serves more than one
+  developer's traffic.
+- **Pipeline latency is tuned for "still looking at the screen," not
+  production efficiency.** The OTel SDK default (`BatchSpanProcessor`
+  `schedule_delay_millis=5000`) stacked with the Collector's own
+  `tail_sampling.decision_wait: 10s` and `batch.timeout: 5s` added up to a
+  trace taking 20-40s to become searchable — long enough that "I can't find
+  the trace I just made" reads as broken tracing rather than pending
+  batches. `telemetry.py` uses `schedule_delay_millis=500`; the Collector
+  uses `decision_wait: 2s` and `batch.timeout: 500ms`. Measured end-to-end
+  after tuning: ~5s from request to searchable. This tradeoff (slightly more,
+  smaller export calls) is free locally and would be worth reconsidering
+  only if this stack ever carries real production volume.
+
+Verified end-to-end (not just "containers are up"): a real call through
+`generate_detailed` produced a trace queryable from both
+`GET localhost:3200/api/traces/{id}` (Tempo) and
+`GET localhost:3000/api/public/v2/observations?...` (Langfuse) with the
+identical trace id, matching `session_id`, and the `llm.call` span carrying
+`langfuse.trace.id`/`langfuse.trace.url` attributes. Separately, after fixing
+the module-level instrumentation ordering: `GET /api/jobs` (a real,
+DB-touching endpoint) produced one coherent trace with `connect` and
+`SELECT ./consilium.db` spans correctly nested as children of the HTTP root
+span — confirming the "was it the database or the LLM" question this
+pipeline exists to answer is actually answerable now, not just that spans
+exist somewhere.
+
 ---
 
 ## 7. Async seat work
