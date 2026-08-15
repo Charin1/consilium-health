@@ -226,8 +226,14 @@ def spawn(job_id: str, work: Callable[[Callable[[str], None]], Dict[str, Any]]) 
     prints a traceback nobody reads.
     """
     def target() -> None:
+        # One root span per job, for the same reason as round_service.spawn:
+        # a fresh thread has no active span, so otherwise every DB query the
+        # job makes becomes a separate single-span root trace.
+        from app.services.telemetry import span
+
         try:
-            run_job(job_id, work)
+            with span("seat.job", **{"job.id": job_id}):
+                run_job(job_id, work)
         except Exception:
             pass  # already recorded on the job row
 

@@ -434,6 +434,20 @@ is passed that reference explicitly, so spans still export to Tempo
 regardless of which provider is process-global. The warning is expected and
 harmless — see the comment on `_tracer_provider` in `telemetry.py`.
 
+**Background work gets an explicit root span, and this is not cosmetic.** A
+newly spawned thread starts with *no* active OTel span, so every SQLAlchemy
+operation inside it becomes its own single-span **root trace**. Left alone, a
+few minutes of normal use buried Tempo under hundreds of one-span
+`connect` / `SELECT` / `PRAGMA` traces — enough that an unfiltered `{}` search
+returned *only* database noise and the `llm.call` traces were pushed past the
+result limit entirely (they existed; they were simply never in the first 20
+rows). The symptom reads as "my LLM traces aren't being recorded" when in fact
+they were. `round_service.spawn`, `job_service.spawn`, and `main.py`'s startup
+sequence each wrap their work in one `telemetry.span(...)`, so a round is one
+trace with its seat turns and queries nested underneath. Measured on a reload:
+20 spans under a single `startup` root, versus 19 separate root traces before.
+Any new background thread or scheduled task needs the same treatment.
+
 Two operational gotchas worth knowing before assuming something's broken:
 
 - **Tempo's `/api/search` with no explicit `start`/`end` doesn't reliably

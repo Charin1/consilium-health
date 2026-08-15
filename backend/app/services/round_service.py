@@ -240,8 +240,18 @@ def spawn(job_id: str, **kwargs: Any) -> None:
     """Run a round on a background thread. The thread swallows the exception
     `run_round` re-raises: the row is already finalized as `failed`."""
     def target() -> None:
+        # A new thread starts with no active OTel span, so without this every
+        # DB query and LLM call inside the round becomes its own *root* trace
+        # (see docs/architecture.md 6a). That flooded Tempo with hundreds of
+        # one-span `connect`/`SELECT` traces and pushed the interesting
+        # `llm.call` ones off the end of any unfiltered search. One root span
+        # per round means one trace per round, with the seat turns and their
+        # queries nested underneath where they belong.
+        from app.services.telemetry import span
+
         try:
-            run_round(job_id, **kwargs)
+            with span("round.run", **{"round.job_id": job_id}):
+                run_round(job_id, **kwargs)
         except Exception:
             pass  # already recorded on the job row
 

@@ -54,14 +54,21 @@ def _json_error_response(
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
     logger.info("Consilium Backend starting")
-    init_db()
-    # Job threads do not survive a restart, so anything still queued or running
-    # belongs to work that is never coming back. Left alone, those rows are
-    # permanently busy ghosts on the floor view.
-    from app.services.job_service import reap_orphans
-    from app.services.round_service import reap_orphans as reap_round_orphans
-    reap_orphans()
-    reap_round_orphans()
+    # Wrapped in one span so schema setup and reaping land as a single
+    # `startup` trace, rather than one root trace per PRAGMA/connect/UPDATE -
+    # noise that otherwise dominates an unfiltered Tempo search on every
+    # reload (see docs/architecture.md 6a).
+    from app.services.telemetry import span as _span
+
+    with _span("startup"):
+        init_db()
+        # Job threads do not survive a restart, so anything still queued or running
+        # belongs to work that is never coming back. Left alone, those rows are
+        # permanently busy ghosts on the floor view.
+        from app.services.job_service import reap_orphans
+        from app.services.round_service import reap_orphans as reap_round_orphans
+        reap_orphans()
+        reap_round_orphans()
     logger.info("Docs: http://localhost:%s/docs", os.getenv("PORT", "8000"))
     logger.info("Health: http://localhost:%s/health", os.getenv("PORT", "8000"))
     # Report the provider actually in use. This was hardcoded to Groq and
