@@ -183,8 +183,11 @@ generation, and Langfuse's SDK (itself OTel-based) joins that ambient trace rath
 its own — so the LLM call in Grafana/Tempo and the prompt/completion in Langfuse share the exact
 same trace id. Paste it into either tool's search and find the same event.
 
-Traces-only, deliberately — no Prometheus, no Loki, both would need their own justification this
-project hasn't hit yet.
+No Prometheus — metrics would need their own justification this project hasn't hit yet. Logs are
+in though: Grafana Alloy tails `logs/backend/backend.log` and `logs/frontend/frontend.log` into
+Loki, and a log line links straight to the trace it happened inside — a `TraceContextFilter`
+stamps `trace_id`/`span_id` from whatever OTel span is active onto every log record, so "why did
+this request fail" goes log line → trace → every span in it, not three separate lookups.
 
 ---
 

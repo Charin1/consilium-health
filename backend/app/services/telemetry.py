@@ -172,3 +172,26 @@ def current_trace_id() -> Optional[str]:
     cross-reference (see generate_detailed in llm_client.py)."""
     ctx = trace.get_current_span().get_span_context()
     return format(ctx.trace_id, "032x") if ctx.is_valid else None
+
+
+class TraceContextFilter(logging.Filter):
+    """Stamps `trace_id`/`span_id` onto every LogRecord from whatever span is
+    active when the record is emitted. `OTelJsonFormatter`
+    (app/utils/logger.py) already has slots for both fields and includes them
+    in the JSON whenever they're present -- but nothing populated them until
+    this filter is attached, which meant Loki never had a trace_id to
+    correlate with Tempo on (the "View trace" link in Grafana had nothing to
+    link to).
+
+    Wired into setup_logging() (app/utils/logger.py). Safe before
+    setup_telemetry() has run -- current_trace_id() just returns None until a
+    span exists, so early startup logs simply carry no trace id, same as
+    today.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        ctx = trace.get_current_span().get_span_context()
+        if ctx.is_valid:
+            record.trace_id = format(ctx.trace_id, "032x")
+            record.span_id = format(ctx.span_id, "016x")
+        return True

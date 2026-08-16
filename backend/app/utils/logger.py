@@ -150,6 +150,21 @@ def setup_logging(
     console_handler.setFormatter(console_formatter)
     root_logger.addHandler(console_handler)
 
+    # Stamps trace_id/span_id from the active OTel span onto every record.
+    # OTelJsonFormatter already has slots for both fields (see below) but
+    # nothing populated them until this filter existed -- so trace_id in the
+    # log JSON was always empty, and Loki had nothing to correlate with Tempo
+    # on. Lazy import: app.services.telemetry is not needed until a record is
+    # actually emitted, and this keeps app.utils.logger free of an import-time
+    # dependency on the OTel stack (it's a much earlier/more foundational
+    # module -- main.py configures logging before almost anything else).
+    try:
+        from app.services.telemetry import TraceContextFilter
+
+        trace_filter = TraceContextFilter()
+    except Exception:
+        trace_filter = None
+
     # 2. Main Rotating File Handler (logs/backend.log)
     main_log_file = logs_dir / "backend.log"
     main_file_handler = RotatingFileHandler(
@@ -160,6 +175,8 @@ def setup_logging(
     )
     main_file_handler.setLevel(log_level)
     main_file_handler.setFormatter(file_formatter)
+    if trace_filter is not None:
+        main_file_handler.addFilter(trace_filter)
     root_logger.addHandler(main_file_handler)
 
     # 3. Error Rotating File Handler (logs/backend_error.log)
@@ -172,6 +189,8 @@ def setup_logging(
     )
     error_file_handler.setLevel(logging.ERROR)
     error_file_handler.setFormatter(file_formatter)
+    if trace_filter is not None:
+        error_file_handler.addFilter(trace_filter)
     root_logger.addHandler(error_file_handler)
 
     # Configure Uvicorn server loggers to use OTel JSON formatting in log files

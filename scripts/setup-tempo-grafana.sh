@@ -1,31 +1,35 @@
 #!/usr/bin/env bash
 #
-# Consilium - one-time local Tempo + Grafana setup.
+# Consilium - one-time local Tempo + Loki + Grafana setup.
 #
 #   ./scripts/setup-tempo-grafana.sh
 #
-# Stands up a general-purpose tracing stack as a sibling of this repo:
-# OTel Collector (redacts + tail-samples) -> Tempo (stores traces) ->
-# Grafana (auto-provisioned with a Tempo datasource, no UI click-through).
+# Stands up a general-purpose observability stack as a sibling of this repo:
+#   OTel Collector (redacts + tail-samples) -> Tempo (traces)
+#   Grafana Alloy (tails backend.log/frontend.log)  -> Loki (logs)
+#   Grafana (auto-provisioned datasources for both, no UI click-through)
 #
-# This is deliberately traces-only - no Prometheus, no Loki. It answers "was
-# this slow request the database or the LLM call", which general app spans
-# (HTTP, SQL, outbound calls) already cover; it is NOT a duplicate of
-# Langfuse, which traces prompts/completions/cost specifically
-# (see scripts/setup-langfuse.sh). Both write to the same OTel trace_id
-# format so a trace found in one system can be pasted into the other's search.
+# Deliberately no Prometheus - metrics would need their own justification
+# this project hasn't hit yet. This is NOT a duplicate of Langfuse
+# (scripts/setup-langfuse.sh), which traces prompts/completions/cost
+# specifically: this traces everything else (HTTP, SQL, outbound calls, log
+# lines), so a slow response can be attributed to "the database" vs "the LLM
+# call" instead of guessed at, and a log line can jump straight to the trace
+# it happened inside.
 #
 # Reusable: like Langfuse, this instance isn't tied to consilium-health -
 # any future project can point its own OTLP exporter at the same Collector.
 #
-# Safe to re-run: won't regenerate configs or lose Tempo's stored traces on
-# an instance that already exists - it just makes sure everything is up and
-# backend/.env is current.
+# Safe to re-run: each config file is written only if it doesn't already
+# exist (hand edits are never clobbered), so running this again after a
+# fresh git pull adds anything new (e.g. Loki) without touching or losing
+# what's already deployed. Existing Tempo/Loki data is never lost.
 
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_ENV="$ROOT/backend/.env"
+BACKEND_LOGS="$ROOT/logs"
 TG_DIR="$(dirname "$ROOT")/tempo-grafana"
 
 BOLD=$'\033[1m'; DIM=$'\033[2m'; RED=$'\033[31m'; GRN=$'\033[32m'
@@ -37,6 +41,16 @@ warn() { printf '%s\n' "  ${YLW}warn${RST}  $*"; }
 die()  { printf '%s\n' "  ${RED}error${RST} $*" >&2; exit 1; }
 
 port_busy() { lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1; }
+
+write_if_missing() {  # write_if_missing <path> then heredoc via stdin
+  local path="$1"
+  if [[ -f "$path" ]]; then
+    ok "$(basename "$path") already present - not overwriting"
+  else
+    cat > "$path"
+    ok "wrote $(basename "$path")"
+  fi
+}
 
 # ------------------------------------------------------------------- docker
 command -v docker >/dev/null 2>&1 || die "docker not found - install Docker Desktop first"
@@ -57,21 +71,30 @@ ok "docker running"
 # --------------------------------------------------------------- port scan
 # 3000 is deliberately not in this list - Grafana here is mapped to 3002 to
 # avoid the exact collision setup-langfuse.sh's web UI already occupies.
-for wp in 4317:otel-grpc 4318:otel-http 13133:otel-health 3200:tempo-api 3002:grafana; do
-  p="${wp%%:*}"; label="${wp#*:}"
-  port_busy "$p" && die "host port $p ($label) is already in use - free it or edit the port map in this script"
-done
-ok "ports free (4317, 4318, 13133, 3200, 3002)"
+#
+# Skipped entirely if our own stack is already the thing holding these ports
+# (a re-run against an existing install, e.g. to pick up a fresh git pull) -
+# `docker compose up -d` below is idempotent and handles that correctly on
+# its own. Only a genuine conflict (something else on these ports) should die.
+if [[ -f "$TG_DIR/docker-compose.yml" ]] \
+   && [[ -n "$(docker compose -f "$TG_DIR/docker-compose.yml" ps --status running -q 2>/dev/null)" ]]; then
+  ok "stack already running -> $TG_DIR (re-applying config)"
+else
+  for wp in 4317:otel-grpc 4318:otel-http 13133:otel-health 3200:tempo-api 3002:grafana 3100:loki 12345:alloy; do
+    p="${wp%%:*}"; label="${wp#*:}"
+    port_busy "$p" && die "host port $p ($label) is already in use - free it or edit the port map in this script"
+  done
+  ok "ports free (4317, 4318, 13133, 3200, 3002, 3100, 12345)"
+fi
 
 # -------------------------------------------------------------------- files
 mkdir -p "$TG_DIR/grafana/provisioning/datasources"
+[[ -d "$BACKEND_LOGS/backend" && -d "$BACKEND_LOGS/frontend" ]] \
+  || warn "logs/backend or logs/frontend not found yet - run the app once (./start.sh) so Alloy has files to tail"
 
-if [[ -f "$TG_DIR/docker-compose.yml" ]]; then
-  ok "config already present -> $TG_DIR (not overwriting - edit by hand if you need changes)"
-else
-  say "writing config -> $TG_DIR"
+say "writing config -> $TG_DIR (only what's missing)"
 
-  cat > "$TG_DIR/otel-collector.yaml" <<'EOF'
+write_if_missing "$TG_DIR/otel-collector.yaml" <<'EOF'
 # Single ingress for app telemetry. Apps export OTLP here and know nothing
 # about Tempo directly - swapping backends later is a Collector-only change.
 receivers:
@@ -157,7 +180,7 @@ service:
     logs: {level: info}
 EOF
 
-  cat > "$TG_DIR/tempo-config.yaml" <<'EOF'
+write_if_missing "$TG_DIR/tempo-config.yaml" <<'EOF'
 # Tempo single-binary, local storage. No metrics_generator remote_write -
 # there is no Prometheus in this stack to receive it; leaving that pointed
 # at a nonexistent target would just fill the log with failed writes.
@@ -199,7 +222,129 @@ usage_report:
   reporting_enabled: false
 EOF
 
-  cat > "$TG_DIR/grafana/provisioning/datasources/datasources.yaml" <<'EOF'
+write_if_missing "$TG_DIR/loki-config.yaml" <<'EOF'
+# Loki single-binary, filesystem storage. Local dev only.
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: warn
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore: {store: inmemory}
+
+schema_config:
+  configs:
+    - from: 2024-04-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  # REQUIRED for trace_id to arrive as queryable structured metadata rather
+  # than being dropped - that's what makes the Loki<->Tempo jump work.
+  allow_structured_metadata: true
+  volume_enabled: true
+  ingestion_rate_mb: 16
+  ingestion_burst_size_mb: 32
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+  # Not a PHI guarantee - the app is not designed to receive PHI in the
+  # first place - but keep retention short and explicit anyway, since log
+  # bodies are free text and a bug could put something sensitive in one.
+  retention_period: 168h  # 7d
+
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true
+  delete_request_store: filesystem
+
+analytics:
+  reporting_enabled: false
+EOF
+
+write_if_missing "$TG_DIR/alloy-config.alloy" <<'EOF'
+// Tails consilium-health's JSON log files into Loki.
+//
+// Only backend.log and frontend.log are tailed, not backend_error.log -
+// ERROR-level records go to BOTH backend.log and backend_error.log (two
+// handlers on the same root logger, app/utils/logger.py:setup_logging), so
+// tailing the error file too would duplicate every error line in Loki.
+
+local.file_match "app_logs" {
+  path_targets = [
+    {__path__ = "/var/log/consilium/backend/backend.log",   service = "consilium-backend",  stream = "app"},
+    {__path__ = "/var/log/consilium/frontend/frontend.log", service = "consilium-frontend", stream = "app"},
+  ]
+  sync_period = "5s"
+}
+
+loki.source.file "app_logs" {
+  targets       = local.file_match.app_logs.targets
+  forward_to    = [loki.process.otel_json.receiver]
+  tail_from_end = true  // don't replay the whole (multi-MB) history on first boot
+}
+
+loki.process "otel_json" {
+  // Matches OTelJsonFormatter's actual field names (app/utils/logger.py) -
+  // "logger.name" has a literal dot in the key, hence the quoting.
+  stage.json {
+    expressions = {
+      level     = "severity_text",
+      logger    = "\"logger.name\"",
+      trace_id  = "trace_id",
+      span_id   = "span_id",
+      timestamp = "timestamp",
+    }
+  }
+
+  stage.timestamp {
+    source = "timestamp"
+    format = "RFC3339Nano"
+  }
+
+  // Bounded labels only - service (from path_targets) + level. Every label
+  // value creates a separate stream; logger names and trace ids do NOT
+  // belong here (unbounded cardinality), which is exactly why trace_id goes
+  // to structured_metadata below instead.
+  stage.labels {
+    values = {level = "level"}
+  }
+
+  // trace_id as structured metadata (not a label): still queryable, still
+  // what powers the Loki -> Tempo "view trace" jump in Grafana, without the
+  // cardinality cost of making every distinct trace its own stream.
+  stage.structured_metadata {
+    values = {trace_id = "trace_id", span_id = "span_id", logger = "logger"}
+  }
+
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}
+EOF
+
+# datasources.yaml is fully generated (never hand-edited in practice), so
+# it's always rewritten - the only file here without a write_if_missing
+# guard. This is what lets a re-run add the Loki datasource + the Tempo<->Loki
+# cross-links to an install that only had Tempo before.
+cat > "$TG_DIR/grafana/provisioning/datasources/datasources.yaml" <<'EOF'
 apiVersion: 1
 
 datasources:
@@ -225,9 +370,36 @@ datasources:
         timeShiftEnabled: true
         spanStartTimeShift: "-5m"
         spanEndTimeShift: "5m"
-EOF
+      # Trace -> its logs. Filters Loki by trace_id structured metadata
+      # (alloy-config.alloy) rather than a wide time-window guess.
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: "-2m"
+        spanEndTimeShift: "2m"
+        filterByTraceID: true
+        filterBySpanID: false
 
-  cat > "$TG_DIR/docker-compose.yml" <<'EOF'
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    jsonData:
+      maxLines: 1000
+      derivedFields:
+        # Log line -> its trace. trace_id/span_id arrive as structured
+        # metadata (alloy-config.alloy), which is what makes this a field
+        # here rather than a regex scraped out of the JSON body.
+        - name: TraceID
+          matcherType: label
+          matcherRegex: trace_id
+          url: "${__value.raw}"
+          datasourceUid: tempo
+          urlDisplayLabel: "View trace"
+EOF
+ok "wrote datasources.yaml"
+
+write_if_missing "$TG_DIR/docker-compose.yml" <<'EOF'
 name: tempo-grafana
 
 services:
@@ -273,23 +445,64 @@ volumes:
   grafana-data:
 EOF
 
-  ok "wrote config"
-fi
+# Additive overlay, not folded into docker-compose.yml above - keeps that
+# file untouched (any hand edits to it survive) rather than regenerating it.
+# Log paths are absolute and computed from this repo's real location, not a
+# hardcoded "../consilium-health" guess - the clone could be named anything.
+write_if_missing "$TG_DIR/docker-compose.loki.yml" <<EOF
+# Additive overlay, not a standalone file: run together with the base
+# docker-compose.yml (\`docker compose -f docker-compose.yml -f
+# docker-compose.loki.yml up -d\`).
+services:
+  loki:
+    image: grafana/loki:3.5.0
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ./loki-config.yaml:/etc/loki/config.yaml:ro
+      - loki-data:/loki
+    ports:
+      - "3100:3100"
+    restart: unless-stopped
+
+  alloy:
+    image: grafana/alloy:v1.7.5
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./alloy-config.alloy:/etc/alloy/config.alloy:ro
+      - ${BACKEND_LOGS}/backend:/var/log/consilium/backend:ro
+      - ${BACKEND_LOGS}/frontend:/var/log/consilium/frontend:ro
+      - alloy-data:/var/lib/alloy/data
+    ports:
+      - "12345:12345"
+    depends_on: [loki]
+    restart: unless-stopped
+
+volumes:
+  loki-data:
+  alloy-data:
+EOF
 
 # ------------------------------------------------------------------- compose
 say "starting containers (first run pulls images - a couple minutes)"
-( cd "$TG_DIR" && docker compose up -d ) || die "docker compose up failed - see output above"
+( cd "$TG_DIR" && docker compose -f docker-compose.yml -f docker-compose.loki.yml up -d ) \
+  || die "docker compose up failed - see output above"
 
-say "waiting for tempo + grafana to answer"
+say "waiting for tempo + loki + grafana to answer"
 for _ in $(seq 1 40); do
   curl -fsS "http://localhost:3200/ready" >/dev/null 2>&1 \
+    && curl -fsS "http://localhost:3100/ready" >/dev/null 2>&1 \
     && curl -fsS "http://localhost:3002/api/health" >/dev/null 2>&1 \
     && break
   sleep 3
 done
 curl -fsS "http://localhost:3200/ready" >/dev/null 2>&1 || die "tempo did not become ready - check: docker logs tempo-grafana-tempo-1"
+curl -fsS "http://localhost:3100/ready" >/dev/null 2>&1 || die "loki did not become ready - check: docker logs tempo-grafana-loki-1"
 curl -fsS "http://localhost:3002/api/health" >/dev/null 2>&1 || die "grafana did not become healthy - check: docker logs tempo-grafana-grafana-1"
-ok "tempo + grafana healthy"
+ok "tempo + loki + grafana healthy"
 
 # --------------------------------------------------------------- backend/.env
 [[ -f "$BACKEND_ENV" ]] || { warn "backend/.env missing - copying from .env.example first"; cp "$ROOT/backend/.env.example" "$BACKEND_ENV"; }
@@ -313,6 +526,7 @@ printf '\n'
 say "ready"
 printf '  %sGrafana%s  http://localhost:3002  (admin / admin)\n' "$BOLD" "$RST"
 printf '  %sTempo%s    http://localhost:3200\n' "$BOLD" "$RST"
-printf '  %sstop%s     cd %s && docker compose stop\n' "$BOLD" "$RST" "$TG_DIR"
+printf '  %sLoki%s     http://localhost:3100\n' "$BOLD" "$RST"
+printf '  %sstop%s     cd %s && docker compose -f docker-compose.yml -f docker-compose.loki.yml stop\n' "$BOLD" "$RST" "$TG_DIR"
 printf '\n'
-printf '  Just start the app as usual (./start.sh) - tracing is live already.\n'
+printf '  Just start the app as usual (./start.sh) - tracing and log shipping are live already.\n'

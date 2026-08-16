@@ -374,7 +374,7 @@ prompts/completions (emails, SSNs, phone numbers, MRNs) before export via a
 redaction logic. `./scripts/setup-langfuse.sh` stands up a local instance and
 wires the keys in.
 
-### General tracing (OTel → Tempo → Grafana)
+### General tracing and logs (OTel → Tempo/Loki → Grafana)
 
 Langfuse only sees LLM calls. A second, separate pipeline — `app/services/
 telemetry.py` — traces everything else: HTTP requests (FastAPI
@@ -382,9 +382,45 @@ auto-instrumentation), SQL queries (SQLAlchemy), outbound calls (httpx).
 Without it, a slow response can only be attributed to "somewhere in the
 request"; with it, the trace shows whether the time went to the database, an
 external call, or the LLM. `./scripts/setup-tempo-grafana.sh` stands up the
-stack (Collector → Tempo → Grafana, traces-only — no Prometheus, no Loki,
-both would need their own justification this project hasn't hit yet) and
-writes `OTEL_*` into `backend/.env`.
+stack — Collector → Tempo (traces) and Grafana Alloy → Loki (logs), one
+Grafana serving both datasources, no Prometheus (metrics would need their own
+justification this project hasn't hit yet) — and writes `OTEL_*` into
+`backend/.env`.
+
+**Logs and traces are correlated, not just co-located.**
+`TraceContextFilter` (`app/services/telemetry.py`, wired into
+`setup_logging()` in `app/utils/logger.py`) stamps `trace_id`/`span_id` from
+whatever OTel span is active onto every `LogRecord`. `OTelJsonFormatter`
+already had slots for both fields — nothing populated them before this, so
+every log line's `trace_id` was silently empty and Loki had nothing to link
+to Tempo with. Alloy tails `logs/backend/backend.log` and
+`logs/frontend/frontend.log` (not `backend_error.log` — that file duplicates
+every ERROR line already in `backend.log`, from a second handler on the same
+root logger), promotes `trace_id`/`span_id` to Loki structured metadata
+(queryable, but not a label — an *indexed* label per distinct trace id would
+be a cardinality explosion), and Grafana's datasources are wired both
+directions: a log line's `derivedFields` jump to its trace
+(`tempo-grafana/grafana/provisioning/datasources/datasources.yaml`), and a
+trace's `tracesToLogsV2` jumps to its logs, filtered by `trace_id` rather
+than a time-window guess.
+
+**Background work needing its own root span (see below) is what makes this
+worth having.** A log line from inside a boardroom round now carries the
+*round's* trace id, not nothing — so "this round's advisor turn looks wrong"
+resolves as one log-to-trace jump instead of grepping timestamps across two
+systems by hand.
+
+Setup-script note: `setup-tempo-grafana.sh` writes each config file only if
+it's missing (`otel-collector.yaml`, `tempo-config.yaml`, `loki-config.yaml`,
+`alloy-config.alloy`, `docker-compose.yml`, `docker-compose.loki.yml`) —
+hand edits survive a re-run. `datasources.yaml` is the one exception,
+rewritten every run since it's fully generated and never hand-edited; that's
+also what let adding Loki to an already-deployed Tempo-only install just be
+"run the script again" rather than a manual migration. Loki's compose
+service lives in `docker-compose.loki.yml`, an *additive* overlay
+(`docker compose -f docker-compose.yml -f docker-compose.loki.yml up -d`)
+rather than being merged into the base file — same reasoning: the base file
+is left untouched.
 
 **`setup_telemetry(app, engine=...)` is called at module level in `main.py`,
 immediately after `app = FastAPI(...)` — not inside `lifespan()`, and this
