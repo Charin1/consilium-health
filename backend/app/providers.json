@@ -64,6 +64,7 @@
       "default_model": "llama-3.3-70b-versatile",
       "models": [
         { "id": "llama-3.3-70b-versatile", "label": "Llama 3.3 70B", "context": 128000, "input": 0.59, "output": 0.79, "tier": "frontier" },
+        { "id": "openai/gpt-oss-120b", "label": "GPT-OSS 120B", "context": 131072, "input": 0.15, "output": 0.60, "tier": "frontier" },
         { "id": "llama-3.1-8b-instant", "label": "Llama 3.1 8B Instant", "context": 128000, "input": 0.05, "output": 0.08, "tier": "fast" },
         { "id": "gemma2-9b-it", "label": "Gemma 2 9B", "context": 8192, "input": 0.2, "output": 0.2, "tier": "fast" }
       ]

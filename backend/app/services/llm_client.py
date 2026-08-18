@@ -341,6 +341,23 @@ class UnifiedLLMClient:
             if result.degraded:
                 otel_span.set_attribute("llm.degraded", True)
 
+            # Unconditional (unlike _finish_generation, which only runs when
+            # Langfuse is configured) -- Prometheus metrics work independently
+            # of whether Langfuse is on, same as the OTel span above.
+            try:
+                from app.services.metrics import record_llm_call
+
+                record_llm_call(
+                    node=node, provider=provider_id, model=model_id,
+                    duration_s=(result.latency_ms or 0) / 1000,
+                    tokens_in=result.usage.get("input_tokens") or 0,
+                    tokens_out=result.usage.get("output_tokens") or 0,
+                    cost_usd=result.cost_usd,
+                    degraded=result.degraded,
+                )
+            except Exception:
+                logger.debug("metric emit failed", exc_info=True)
+
         self.last_result = result
         return result
 

@@ -374,18 +374,18 @@ prompts/completions (emails, SSNs, phone numbers, MRNs) before export via a
 redaction logic. `./scripts/setup-langfuse.sh` stands up a local instance and
 wires the keys in.
 
-### General tracing and logs (OTel → Tempo/Loki → Grafana)
+### General tracing, logs, and metrics (OTel → Tempo/Loki/Prometheus → Grafana)
 
 Langfuse only sees LLM calls. A second, separate pipeline — `app/services/
-telemetry.py` — traces everything else: HTTP requests (FastAPI
-auto-instrumentation), SQL queries (SQLAlchemy), outbound calls (httpx).
-Without it, a slow response can only be attributed to "somewhere in the
+telemetry.py` — covers everything else: HTTP requests (FastAPI
+auto-instrumentation), SQL queries (SQLAlchemy), outbound calls (httpx), and
+the RED metrics + domain metrics (LLM cost/tokens/duration) that come with
+them. Without it, a slow response can only be attributed to "somewhere in the
 request"; with it, the trace shows whether the time went to the database, an
 external call, or the LLM. `./scripts/setup-tempo-grafana.sh` stands up the
-stack — Collector → Tempo (traces) and Grafana Alloy → Loki (logs), one
-Grafana serving both datasources, no Prometheus (metrics would need their own
-justification this project hasn't hit yet) — and writes `OTEL_*` into
-`backend/.env`.
+whole stack — Collector → Tempo (traces), Prometheus (metrics), and Grafana
+Alloy → Loki (logs), one Grafana serving all three datasources with
+cross-links between them — and writes `OTEL_*` into `backend/.env`.
 
 **Logs and traces are correlated, not just co-located.**
 `TraceContextFilter` (`app/services/telemetry.py`, wired into
@@ -412,15 +412,76 @@ systems by hand.
 
 Setup-script note: `setup-tempo-grafana.sh` writes each config file only if
 it's missing (`otel-collector.yaml`, `tempo-config.yaml`, `loki-config.yaml`,
-`alloy-config.alloy`, `docker-compose.yml`, `docker-compose.loki.yml`) —
-hand edits survive a re-run. `datasources.yaml` is the one exception,
-rewritten every run since it's fully generated and never hand-edited; that's
-also what let adding Loki to an already-deployed Tempo-only install just be
-"run the script again" rather than a manual migration. Loki's compose
-service lives in `docker-compose.loki.yml`, an *additive* overlay
-(`docker compose -f docker-compose.yml -f docker-compose.loki.yml up -d`)
-rather than being merged into the base file — same reasoning: the base file
-is left untouched.
+`alloy-config.alloy`, `prometheus.yml`, `docker-compose.yml`) — hand edits
+survive a re-run. `datasources.yaml` is the one exception, rewritten every
+run since it's fully generated and never hand-edited; that's also what lets
+adding a new datasource to an already-deployed install just be "run the
+script again" rather than a manual migration. All services (Tempo, Loki,
+Alloy, Prometheus, Grafana) live in one `docker-compose.yml` — Loki and
+Prometheus were each added incrementally through a separate *additive*
+overlay file at first (`docker compose -f x -f y -f z up -d`), which worked
+but meant remembering an extra `-f` flag per addition; consolidated back into
+one file once a third piece (Prometheus) made that genuinely annoying rather
+than a one-time cost.
+
+### Metrics specifically
+
+RED metrics (rate, errors, duration) for HTTP and SQL come free once a
+`MeterProvider` exists — the same FastAPI/httpx/SQLAlchemy instrumentors
+`telemetry.py` already wires up for tracing accept a `meter_provider` kwarg
+alongside `tracer_provider`, so nothing new needed instrumenting by hand.
+Domain metrics — `llm.call.duration`, `llm.tokens`, `llm.cost.usd`,
+`llm.calls` — live in `app/services/metrics.py`, emitted from the same
+unconditional point in `generate_detailed` that already opens the `llm.call`
+OTel span, so a Prometheus counter can never disagree with what Tempo or
+Langfuse recorded for the same call. Cardinality is bounded on purpose: node
+name, model, provider, `degraded` — never `session_id`/`persona_id`/`run_id`,
+which belong on the span, not the metric.
+
+**Exemplars close the loop the other direction**: a Prometheus data point
+carries the exact `trace_id` of a request that contributed to it, so a spike
+in a Grafana graph isn't just "something got slow at 3:04pm" — click the
+point, land on the actual trace. Verified for real, not just "no errors":
+`api/v1/query_exemplars` on a live `llm_call_duration_seconds_bucket` series
+returned a `trace_id` that resolved with `GET /api/traces/{id}` → `200` in
+Tempo.
+
+**Process resource metrics (CPU/RAM/threads/GC) are in too**, via
+`opentelemetry-instrumentation-system-metrics`, same pipeline, no new
+infrastructure. Configured for `process.*`/`cpython.*` only (CPU%, RSS/virtual
+memory, thread count, open file descriptors, GC generations) — deliberately
+excluding `system.*` (whole-host CPU/RAM), which on a shared dev laptop would
+answer "how busy is this laptop" rather than "is our backend using too much."
+The config dict is derived from the library's own `_build_default_config()`
+and filtered to the `process.`/`cpython.` prefix, not hand-written per key —
+some keys need `None`, others need a list of sub-metric names
+(`process.cpu.time` needs `["user", "system"]`; guessing `None` for every key
+compiled fine but crashed the metric's collection callback at *export* time,
+`'NoneType' object is not iterable`, with no indication of which key was
+wrong). Deriving from the real default config sidesteps needing to know which
+keys want what.
+
+Two more bugs hit and fixed while wiring this up (the system-metrics config
+bug above is a third), all worth knowing about before touching this again:
+
+- **`enable_open_metrics: true` is a Collector exporter setting, not a
+  Prometheus scrape-config field.** Copying it into `prometheus.yml`'s
+  `scrape_configs` crash-looped Prometheus 3.x on startup: `field
+  enable_open_metrics not found in type config.ScrapeConfig`. Exemplar
+  support needs exactly two things — the Collector's prometheus exporter
+  running with `enable_open_metrics: true`, and Prometheus itself started
+  with `--enable-feature=exemplar-storage` — Prometheus then auto-negotiates
+  OpenMetrics via the `Accept` header on its own; there's nothing to
+  configure per scrape target.
+- **The FastAPI instrumentor's HTTP metric is `http_server_duration_milliseconds`
+  (older semantic convention, unit: milliseconds), not
+  `http_server_request_duration_seconds`** — a plausible-sounding name that
+  several docs and an earlier draft of `datasources.yaml` assumed, and that
+  would have silently produced an empty panel with no error anywhere. Found
+  by reading the actual scrape output (`curl localhost:8889/metrics`) rather
+  than trusting the name — the same discipline the Langfuse SDK's API
+  surface required earlier in this file. Re-verify against real scrape
+  output before trusting either name on an instrumentation-library upgrade.
 
 **`setup_telemetry(app, engine=...)` is called at module level in `main.py`,
 immediately after `app = FastAPI(...)` — not inside `lifespan()`, and this

@@ -1,5 +1,5 @@
 """
-OpenTelemetry bootstrap: traces only.
+OpenTelemetry bootstrap: traces and metrics.
 
 Companion to `langfuse_client.py`, not a replacement for it. Langfuse traces
 prompts/completions/cost for LLM calls specifically; this traces everything
@@ -10,14 +10,14 @@ meet: it opens both a Langfuse generation and a plain OTel span for the same
 call, and stamps each system's trace id onto the other as metadata, so a
 trace found in one tool can be pasted into the other's search.
 
-No metrics here deliberately -- this stack is Collector -> Tempo -> Grafana,
-traces-only (see scripts/setup-tempo-grafana.sh). Metrics would need
-Prometheus, which isn't part of this deployment; adding a MeterProvider with
-nowhere for the Collector to route it just fills the log with dropped
-exports.
+Metrics: RED (rate, errors, duration) for HTTP and SQL come free from the
+same FastAPI/httpx/SQLAlchemy instrumentors below once a MeterProvider
+exists -- no extra code. Domain metrics (LLM cost/tokens/duration, in
+`metrics.py`) are emitted by hand from the one place that already computes
+them (`llm_client.py`'s `_finish_generation`).
 
 Best-effort like the Langfuse client: `setup_telemetry()` never raises, and
-a missing/unreachable Collector degrades to no tracing, not a broken app.
+a missing/unreachable Collector degrades to no telemetry, not a broken app.
 """
 
 from __future__ import annotations
@@ -28,7 +28,9 @@ import os
 from contextlib import contextmanager
 from typing import Any, Optional
 
-from opentelemetry import trace
+from opentelemetry import metrics, trace
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
@@ -36,7 +38,7 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 logger = logging.getLogger("consilium.telemetry")
 
 _initialised = False
-# Kept separately from the OTel *global* provider: Langfuse's own SDK is
+# Kept separately from the OTel *global* providers: Langfuse's own SDK is
 # OTel-based internally and, since it initialises first (langfuse_client.py
 # runs before this in main.py's lifespan), it already claims the process-wide
 # global TracerProvider by the time this runs -- `trace.set_tracer_provider()`
@@ -46,8 +48,12 @@ _initialised = False
 # Tempo rather than being created against Langfuse's provider. Trace/span
 # *context* (parent-child nesting, the shared trace_id) is unaffected either
 # way -- that's propagated via contextvars, not tied to which provider made a
-# given span.
+# given span. Langfuse's SDK does not touch the global MeterProvider (verified
+# against the installed version), so this specific conflict is trace-only --
+# but _meter_provider is still kept explicit for the same reason: nothing
+# here should depend on what else in the process happens to run first.
 _tracer_provider: Optional[TracerProvider] = None
+_meter_provider: Optional[MeterProvider] = None
 
 
 def setup_telemetry(app: Optional[Any] = None, engine: Optional[Any] = None) -> None:
@@ -103,6 +109,36 @@ def setup_telemetry(app: Optional[Any] = None, engine: Optional[Any] = None) -> 
         _initialised = True
         return
 
+    meter = None
+    try:
+        from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+
+        meter_provider = MeterProvider(
+            resource=resource,
+            metric_readers=[
+                PeriodicExportingMetricReader(
+                    OTLPMetricExporter(endpoint=endpoint, insecure=endpoint.startswith("http://")),
+                    # SDK default is 60000ms. On a local single-developer
+                    # stack that means a metric you just emitted is invisible
+                    # in Prometheus for up to a minute -- the exact latency
+                    # trap already hit and fixed for traces (decision_wait,
+                    # batch.timeout). 5s matches this stack's Prometheus
+                    # scrape_interval (scripts/setup-prometheus.sh).
+                    export_interval_millis=5000,
+                )
+            ],
+        )
+        global _meter_provider
+        _meter_provider = meter_provider
+        try:
+            metrics.set_meter_provider(meter_provider)
+        except Exception:
+            logger.debug("global MeterProvider already set", exc_info=True)
+        atexit.register(_shutdown_meter, meter_provider)
+        meter = meter_provider
+    except Exception:
+        logger.warning("OTel meter setup failed - metrics off, traces unaffected", exc_info=True)
+
     # Each import is optional: a missing instrumentation package must not
     # take the app down.
     if app is not None:
@@ -110,7 +146,8 @@ def setup_telemetry(app: Optional[Any] = None, engine: Optional[Any] = None) -> 
             from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
             FastAPIInstrumentor.instrument_app(
-                app, tracer_provider=provider, excluded_urls="health,healthz,docs,openapi.json"
+                app, tracer_provider=provider, meter_provider=meter,
+                excluded_urls="health,healthz,docs,openapi.json",
             )
         except Exception:
             logger.warning("FastAPI instrumentation unavailable", exc_info=True)
@@ -118,7 +155,7 @@ def setup_telemetry(app: Optional[Any] = None, engine: Optional[Any] = None) -> 
     try:
         from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 
-        HTTPXClientInstrumentor().instrument(tracer_provider=provider)
+        HTTPXClientInstrumentor().instrument(tracer_provider=provider, meter_provider=meter)
     except Exception:
         logger.warning("httpx instrumentation unavailable", exc_info=True)
 
@@ -127,16 +164,50 @@ def setup_telemetry(app: Optional[Any] = None, engine: Optional[Any] = None) -> 
             from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 
             SQLAlchemyInstrumentor().instrument(
-                engine=engine, tracer_provider=provider, enable_commenter=False
+                engine=engine, tracer_provider=provider, meter_provider=meter,
+                enable_commenter=False,
             )
         except Exception:
             logger.warning("SQLAlchemy instrumentation unavailable", exc_info=True)
 
+    if meter is not None:
+        try:
+            from opentelemetry.instrumentation.system_metrics import SystemMetricsInstrumentor
+
+            # This process's own CPU/RAM/threads/GC -- deliberately not
+            # system.* (whole-host CPU/RAM), which on a shared dev laptop
+            # would be diluted by every other running program and answer a
+            # different question than "is our backend using too much".
+            #
+            # Values are pulled from the library's own default config, not
+            # hand-set -- some keys (process.cpu.time, process.context_
+            # switches) need a *list* of sub-metric names (e.g. ["user",
+            # "system"]), others need None. Guessing None for all of them
+            # compiles fine but crashes the metric's collection callback at
+            # export time ("'NoneType' object is not iterable") with no
+            # indication of which key was wrong.
+            from opentelemetry.instrumentation.system_metrics import _build_default_config
+
+            defaults = _build_default_config()
+            process_keys = [k for k in defaults if k.startswith(("process.", "cpython."))]
+            SystemMetricsInstrumentor(
+                config={k: defaults[k] for k in process_keys}
+            ).instrument(meter_provider=meter)
+        except Exception:
+            logger.warning("System metrics instrumentation unavailable", exc_info=True)
+
     _initialised = True
-    logger.info("OTel tracing enabled -> %s", endpoint)
+    logger.info("OTel tracing enabled -> %s (metrics: %s)", endpoint, "on" if meter else "off")
 
 
 def _shutdown(provider: TracerProvider) -> None:
+    try:
+        provider.shutdown()
+    except Exception:
+        pass
+
+
+def _shutdown_meter(provider: MeterProvider) -> None:
     try:
         provider.shutdown()
     except Exception:

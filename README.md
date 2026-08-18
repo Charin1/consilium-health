@@ -169,10 +169,10 @@ completions are masked (emails, SSNs, phone numbers, MRNs) before they leave the
 itself. Tracing is entirely best-effort: unreachable or misconfigured, the app runs identically
 with it off.
 
-Langfuse traces the LLM calls specifically. Everything else in a request — HTTP handling, SQL
-queries, outbound calls — goes through a separate OpenTelemetry pipeline
-(Collector → Tempo → Grafana), so a slow response can be attributed to "the database" or "the LLM
-call" instead of guessed at:
+Langfuse traces the LLM calls specifically. Everything else — HTTP handling, SQL queries, outbound
+calls, RED + domain metrics, logs — goes through a separate OpenTelemetry pipeline (Collector →
+Tempo/Loki/Prometheus → Grafana), so a slow response can be attributed to "the database" or "the
+LLM call" instead of guessed at:
 
 ```sh
 ./scripts/setup-tempo-grafana.sh   # one-time: starts the stack, writes OTEL_* into backend/.env
@@ -183,11 +183,12 @@ generation, and Langfuse's SDK (itself OTel-based) joins that ambient trace rath
 its own — so the LLM call in Grafana/Tempo and the prompt/completion in Langfuse share the exact
 same trace id. Paste it into either tool's search and find the same event.
 
-No Prometheus — metrics would need their own justification this project hasn't hit yet. Logs are
-in though: Grafana Alloy tails `logs/backend/backend.log` and `logs/frontend/frontend.log` into
-Loki, and a log line links straight to the trace it happened inside — a `TraceContextFilter`
-stamps `trace_id`/`span_id` from whatever OTel span is active onto every log record, so "why did
-this request fail" goes log line → trace → every span in it, not three separate lookups.
+Everything correlates. A log line's `trace_id` (stamped by `TraceContextFilter` from whatever OTel
+span is active) jumps straight to its trace in Tempo; a trace jumps to its logs in Loki, filtered
+by that same id; and a Prometheus metric point carries an exemplar — the exact trace behind that
+number — so a spike in a graph is one click from "which request did this." `llm.cost.usd`,
+`llm.tokens`, and `llm.call.duration` (`app/services/metrics.py`) are emitted from the same call
+site as the Langfuse generation and the `llm.call` span, so the three can't drift out of agreement.
 
 ---
 
