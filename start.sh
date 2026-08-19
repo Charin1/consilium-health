@@ -2,18 +2,25 @@
 #
 # Consilium - start backend and frontend together.
 #
-#   ./start.sh            start both
-#   ./start.sh backend    backend only
-#   ./start.sh frontend   frontend only
-#   ./start.sh check      verify the environment, start nothing
+#   ./start.sh                       start both
+#   ./start.sh backend               backend only
+#   ./start.sh frontend               frontend only
+#   ./start.sh check                 verify the environment, start nothing
+#   ./start.sh --observability       also bring up Langfuse + Tempo/Loki/Prometheus/Grafana
+#   ./start.sh backend --obs         (any mode + --observability, or its short form --obs)
 #
-# Ctrl-C stops everything it started.
+# Ctrl-C stops the backend/frontend this script started. Observability is
+# deliberately NOT stopped on Ctrl-C -- it's long-lived Docker infra (each
+# service is `restart: unless-stopped`), not a foreground dev process tied to
+# this terminal. Stop it explicitly: cd ../langfuse or ../tempo-grafana &&
+# docker compose stop (printed at the end of a run started with --observability).
 
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND="$ROOT/backend"
 FRONTEND="$ROOT/frontend"
+SCRIPTS="$ROOT/scripts"
 LOGS="$ROOT/logs"
 VENV="$BACKEND/.venv"
 PY="$VENV/bin/python"
@@ -108,6 +115,24 @@ ensure_frontend() {
   ok "frontend dependencies installed"
 }
 
+# --------------------------------------------------------------- observability
+# Opt-in only (--observability / --obs). Delegates entirely to the two setup
+# scripts rather than re-implementing Docker/port/health handling here -
+# both are already idempotent (safe to re-run against an install that's
+# already up) and print their own service URLs, so this just calls them and
+# gets out of the way.
+ensure_observability() {
+  local langfuse_script="$SCRIPTS/setup-langfuse.sh"
+  local tempo_script="$SCRIPTS/setup-tempo-grafana.sh"
+  [[ -x "$langfuse_script" ]] || die "--observability requested but $langfuse_script is missing or not executable"
+  [[ -x "$tempo_script" ]]   || die "--observability requested but $tempo_script is missing or not executable"
+
+  say "observability requested - bringing up Langfuse + Tempo/Loki/Prometheus/Grafana"
+  "$langfuse_script"   || die "setup-langfuse.sh failed - see output above"
+  "$tempo_script"       || die "setup-tempo-grafana.sh failed - see output above"
+  ok "observability stack ready"
+}
+
 # ------------------------------------------------------------------- roster
 show_roster() {
   PYTHONPATH="$BACKEND" "$PY" - <<'PY' 2>/dev/null || warn "could not load persona roster"
@@ -160,7 +185,17 @@ start_frontend() {
 }
 
 # ---------------------------------------------------------------------- main
-MODE="${1:-all}"
+# --observability/--obs can appear anywhere alongside the positional mode
+# (./start.sh --obs, ./start.sh backend --obs, ./start.sh --obs backend all work).
+OBSERVABILITY=0
+MODE=""
+for arg in "$@"; do
+  case "$arg" in
+    --observability|--obs) OBSERVABILITY=1 ;;
+    *) [[ -z "$MODE" ]] && MODE="$arg" ;;
+  esac
+done
+MODE="${MODE:-all}"
 
 case "$MODE" in
   check)
@@ -168,16 +203,25 @@ case "$MODE" in
     ensure_backend
     ensure_frontend
     show_roster
+    if [[ "$OBSERVABILITY" -eq 1 ]]; then
+      # check-mode contract is "verify, start nothing" - so this confirms the
+      # setup scripts are present rather than actually bringing up Docker.
+      [[ -x "$SCRIPTS/setup-langfuse.sh" ]] && ok "setup-langfuse.sh present" || warn "setup-langfuse.sh missing"
+      [[ -x "$SCRIPTS/setup-tempo-grafana.sh" ]] && ok "setup-tempo-grafana.sh present" || warn "setup-tempo-grafana.sh missing"
+    fi
     say "environment ready - run ./start.sh to launch"
     trap - EXIT; exit 0
     ;;
   backend)
+    [[ "$OBSERVABILITY" -eq 1 ]] && ensure_observability
     ensure_backend; show_roster; start_backend
     ;;
   frontend)
+    [[ "$OBSERVABILITY" -eq 1 ]] && ensure_observability
     ensure_frontend; start_frontend
     ;;
   all)
+    [[ "$OBSERVABILITY" -eq 1 ]] && ensure_observability
     ensure_backend
     ensure_frontend
     show_roster
@@ -185,10 +229,13 @@ case "$MODE" in
     start_frontend
     ;;
   *)
-    die "unknown mode '$MODE' - use: all | backend | frontend | check"
+    die "unknown mode '$MODE' - use: all | backend | frontend | check (add --observability / --obs to any of them)"
     ;;
 esac
 
 printf '\n'
+if [[ "$OBSERVABILITY" -eq 1 ]]; then
+  say "observability  ${DIM}Langfuse http://localhost:3000 - Grafana http://localhost:3002${RST}"
+fi
 say "running - ${DIM}logs in $LOGS/, Ctrl-C to stop${RST}"
 wait
