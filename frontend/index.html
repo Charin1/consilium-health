@@ -8,7 +8,12 @@
     <title>Consilium</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Source+Serif+4:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- Outfit is the only family actually referenced anywhere (console.css
+         --font-ui). Source Serif 4 was loaded here too but nothing in the
+         codebase ever referenced it -- paying the network cost of a webfont
+         for zero rendered characters. Dropped; re-add if a long-form/report
+         reading surface wants a serif later. -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
   </head>
   <body>
     <div id="root"></div>

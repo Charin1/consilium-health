@@ -22,7 +22,10 @@
 
     --ink: #161a20;
     --ink-soft: #59626f;
-    --ink-faint: #8a93a1;
+    /* 4.62:1 on --surface (was #8a93a1, 3.1:1 -- failed the 4.5:1 minimum
+       this file's own design checklist requires). Verified by computing
+       WCAG relative luminance directly, not eyeballed. */
+    --ink-faint: #6b7684;
 
     --accent: #0e6a70;
     --accent-ink: #0a4a4e;
@@ -36,8 +39,22 @@
 
     --shadow: 0 1px 2px rgba(20, 26, 34, 0.06), 0 4px 12px rgba(20, 26, 34, 0.04);
 
-    --font-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    /* Outfit is loaded in index.html (with preconnect) specifically for
+       this token -- it was loaded but never referenced anywhere, paying
+       the network cost of a webfont while every character actually
+       rendered in the system-font fallback. System stack stays as the
+       fallback, not removed. */
+    --font-ui: "Outfit", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+
+    /* Weight roles, so "this is a title" (bold) reads as categorically
+       different from "this is emphasized body text" (semibold) instead of
+       both landing on the same 600/650 as everything else that wants to
+       stand out even slightly. */
+    --weight-regular: 400;
+    --weight-medium: 500;
+    --weight-semibold: 600;
+    --weight-bold: 700;
 
     --radius: 6px;
 }
@@ -52,7 +69,7 @@
 
         --ink: #e7eaee;
         --ink-soft: #9aa4b2;
-        --ink-faint: #6d7787;
+        --ink-faint: #8994a3;  /* 5.5:1 on --surface (was #6d7787, 3.73:1 -- also failed 4.5:1) */
 
         --accent: #4fb3b8;
         --accent-ink: #8fd3d6;
@@ -77,7 +94,7 @@
 
     --ink: #e7eaee;
     --ink-soft: #9aa4b2;
-    --ink-faint: #6d7787;
+    --ink-faint: #8994a3;  /* 5.5:1 on --surface (was #6d7787, 3.73:1 -- also failed 4.5:1) */
 
     --accent: #4fb3b8;
     --accent-ink: #8fd3d6;
@@ -99,7 +116,7 @@ body {
     background: var(--ground);
     color: var(--ink);
     font-family: var(--font-ui);
-    font-size: 14px;
+    font-size: 17px;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
 }
@@ -137,15 +154,15 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 .masthead h1 {
     margin: 0;
-    font-size: 15px;
-    font-weight: 650;
+    font-size: 16px;
+    font-weight: var(--weight-bold);
     letter-spacing: 0.14em;
     text-transform: uppercase;
 }
 
 .masthead .sub {
     color: var(--ink-faint);
-    font-size: 12px;
+    font-size: 13.5px;
 }
 
 .masthead .spacer { flex: 1; }
@@ -165,7 +182,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
     border-radius: 999px;
     background: transparent;
     color: var(--ink-soft);
-    font-size: 12px;
+    font-size: 13.5px;
     transition: background 0.12s, border-color 0.12s, color 0.12s;
 }
 
@@ -179,7 +196,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .pack-chip .count {
     font-variant-numeric: tabular-nums;
     color: var(--ink-faint);
-    font-size: 11px;
+    font-size: 12.5px;
 }
 
 /*
@@ -196,7 +213,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
     border-radius: 999px;
     background: var(--guard-soft);
     color: var(--guard);
-    font-size: 10.5px;
+    font-size: 12px;
     font-weight: 650;
     letter-spacing: 0.04em;
     white-space: nowrap;
@@ -233,7 +250,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 .pane-head h2 {
     margin: 0;
-    font-size: 11px;
+    font-size: 12.5px;
     font-weight: 650;
     letter-spacing: 0.1em;
     text-transform: uppercase;
@@ -242,7 +259,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 .pane-head .tally {
     margin-left: auto;
-    font-size: 11px;
+    font-size: 12.5px;
     font-variant-numeric: tabular-nums;
     color: var(--ink-faint);
 }
@@ -282,7 +299,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
     border-radius: 999px;
     background: transparent;
     color: var(--ink-soft);
-    font-size: 12px;
+    font-size: 13.5px;
     font-weight: 600;
     display: inline-flex;
     align-items: center;
@@ -302,7 +319,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
     padding: 0 5px;
     border-radius: 999px;
     background: rgba(0, 0, 0, 0.08);
-    font-size: 10px;
+    font-size: 11.5px;
 }
 
 /* A live round is worth knowing about even while looking at another tab. */
@@ -333,7 +350,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
     border-radius: var(--radius);
     background: var(--accent);
     color: #fff;
-    font-size: 12.5px;
+    font-size: 14px;
     font-weight: 650;
     white-space: nowrap;
 }
@@ -393,7 +410,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
     background: var(--ground);
     color: var(--ink);
     font: inherit;
-    font-size: 13px;
+    font-size: 15px;
 }
 
 .tag-row { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -404,7 +421,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
     border-radius: 3px;
     background: transparent;
     color: var(--ink-faint);
-    font-size: 10.5px;
+    font-size: 12px;
     letter-spacing: 0.03em;
 }
 
@@ -416,7 +433,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 .tier-heading {
     margin: 14px 0 6px;
-    font-size: 10.5px;
+    font-size: 12px;
     font-weight: 650;
     letter-spacing: 0.11em;
     text-transform: uppercase;
@@ -446,15 +463,15 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 .seat.is-inspected { border-color: var(--accent); }
 
-.seat .name { display: block; font-weight: 600; font-size: 13px; }
-.seat .role { display: block; color: var(--ink-soft); font-size: 11.5px; margin-top: 1px; }
+.seat .name { display: block; font-weight: 600; font-size: 15px; }
+.seat .role { display: block; color: var(--ink-soft); font-size: 13px; margin-top: 1px; }
 
 .seat .meta {
     display: flex;
     gap: 6px;
     align-items: center;
     margin-top: 5px;
-    font-size: 10.5px;
+    font-size: 12px;
     color: var(--ink-faint);
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -502,7 +519,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
     border-radius: var(--radius);
     background: var(--accent);
     color: #fff;
-    font-size: 13px;
+    font-size: 15px;
     font-weight: 600;
 }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
@@ -513,14 +530,14 @@ button { font: inherit; color: inherit; cursor: pointer; }
     border-radius: var(--radius);
     background: transparent;
     color: var(--ink-soft);
-    font-size: 13px;
+    font-size: 15px;
 }
 
 .cap-field {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    font-size: 12px;
+    font-size: 13.5px;
     color: var(--ink-soft);
 }
 .cap-field input {
@@ -541,7 +558,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
     padding: 8px 14px;
     background: var(--surface-sunk);
     border-bottom: 1px solid var(--line);
-    font-size: 11.5px;
+    font-size: 13px;
     color: var(--ink-soft);
 }
 
@@ -552,7 +569,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 }
 
 .readout .est {
-    font-size: 10px;
+    font-size: 11.5px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: var(--ink-faint);
@@ -576,7 +593,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
     border: 1px solid var(--accent);
     border-radius: var(--radius);
     background: var(--accent-soft);
-    font-size: 12.5px;
+    font-size: 14px;
     color: var(--accent-ink);
 }
 
@@ -610,12 +627,12 @@ button { font: inherit; color: inherit; cursor: pointer; }
     padding: 3px 10px;
     border-color: currentColor;
     color: inherit;
-    font-size: 11.5px;
+    font-size: 13px;
 }
 .round-stop:hover { background: rgba(0, 0, 0, 0.06); }
 
 .round-stopping-label {
-    font-size: 11px;
+    font-size: 12.5px;
     font-style: italic;
     opacity: 0.85;
 }
@@ -626,7 +643,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
     margin-bottom: 10px;
     padding: 8px 10px;
     border-radius: var(--radius);
-    font-size: 12.5px;
+    font-size: 14px;
 }
 .notice-tension { background: var(--tension-soft); color: var(--tension); }
 .notice-guard { background: var(--guard-soft); color: var(--guard); }
@@ -649,8 +666,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 .block.has-tension { border-top-color: var(--tension); }
 
-.block .name { font-weight: 650; font-size: 12.5px; }
-.block .role { color: var(--ink-soft); font-size: 11px; margin-top: 2px; }
+.block .name { font-weight: 650; font-size: 14px; }
+.block .role { color: var(--ink-soft); font-size: 12.5px; margin-top: 2px; }
 
 .block .drop {
     position: absolute;
@@ -667,7 +684,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 .block .why {
     margin-top: 6px;
-    font-size: 10.5px;
+    font-size: 12px;
     color: var(--ink-faint);
     text-transform: uppercase;
     letter-spacing: 0.04em;
@@ -683,16 +700,16 @@ button { font: inherit; color: inherit; cursor: pointer; }
     border-left: 2px solid var(--tension);
     background: var(--tension-soft);
     border-radius: 0 var(--radius) var(--radius) 0;
-    font-size: 12px;
+    font-size: 13.5px;
 }
-.tension-list .vs { color: var(--tension); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; }
-.tension-list .one-sided { margin-left: auto; font-size: 10px; color: var(--ink-faint); }
+.tension-list .vs { color: var(--tension); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.08em; }
+.tension-list .one-sided { margin-left: auto; font-size: 11.5px; color: var(--ink-faint); }
 
 .rationale { display: grid; gap: 5px; }
-.rationale-row { font-size: 11.5px; color: var(--ink-soft); }
+.rationale-row { font-size: 13px; color: var(--ink-soft); }
 .rationale-row .rule {
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: 12px;
     color: var(--accent-ink);
     background: var(--accent-soft);
     padding: 1px 5px;
@@ -701,14 +718,14 @@ button { font: inherit; color: inherit; cursor: pointer; }
 }
 .rationale-row .term {
     font-family: var(--font-mono);
-    font-size: 10.5px;
+    font-size: 12px;
     color: var(--ink);
 }
 
 .section { margin-bottom: 16px; }
 .section > h3 {
     margin: 0 0 7px;
-    font-size: 10.5px;
+    font-size: 12px;
     font-weight: 650;
     letter-spacing: 0.1em;
     text-transform: uppercase;
@@ -734,14 +751,111 @@ button { font: inherit; color: inherit; cursor: pointer; }
     margin-bottom: 5px;
 }
 
-.turn-head .who { font-weight: 650; font-size: 12.5px; }
-.turn-head .when { margin-left: auto; font-size: 10.5px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.turn-head .who { font-weight: 650; font-size: 14px; }
+.turn-head .when { margin-left: auto; font-size: 12px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
 
-.turn-body { font-size: 13px; line-height: 1.55; }
+.turn-body { font-size: 15px; line-height: 1.55; }
 .turn-body p { margin: 0 0 8px; }
 .turn-body ul, .turn-body ol { margin: 0 0 8px; padding-left: 18px; }
 .turn-body pre { overflow-x: auto; background: var(--surface-sunk); padding: 8px; border-radius: var(--radius); }
-.turn-body code, .inline-code { font-family: var(--font-mono); font-size: 12px; }
+.turn-body code, .inline-code { font-family: var(--font-mono); font-size: 13.5px; }
+
+/*
+ * MarkdownView's output (.markdown-body and its .md-* children) had no CSS
+ * anywhere in the codebase -- headers, lists, quotes, and tables all rendered
+ * on bare browser defaults, and Markdown tables specifically weren't parsed
+ * at all (a "| a | b |" row fell through to a plain paragraph and rendered
+ * as literal pipe-and-dash text). Sized to sit inside .turn-body's 15px
+ * scale, not as its own disconnected system.
+ */
+.md-p { margin: 0 0 8px; }
+.md-spacer { height: 4px; }
+
+.md-h1, .md-h2, .md-h3 {
+    margin: 14px 0 6px;
+    font-weight: var(--weight-bold);
+    line-height: 1.3;
+}
+.md-h1:first-child, .md-h2:first-child, .md-h3:first-child { margin-top: 0; }
+.md-h1 { font-size: 19px; }
+.md-h2 { font-size: 17px; }
+.md-h3 { font-size: 15px; }
+
+.md-list { margin: 0 0 8px; padding-left: 4px; list-style: none; }
+.md-list-item {
+    position: relative;
+    margin: 0 0 4px;
+    padding-left: 18px;
+}
+.md-list-item::before {
+    content: "\2022";
+    position: absolute;
+    left: 4px;
+    color: var(--ink-faint);
+}
+/* Numbered lists get real numerals instead of the bullet::before glyph --
+   ol's own counter, not a duplicate of the source text's "1." prefix
+   (parseInlineMarkdown already stripped that from the item's own content). */
+ol.md-list { list-style: none; counter-reset: md-ol; }
+ol.md-list > .md-list-item { counter-increment: md-ol; }
+ol.md-list > .md-list-item::before {
+    content: counter(md-ol) ".";
+    left: -2px;
+    color: var(--ink-soft);
+    font-variant-numeric: tabular-nums;
+}
+
+.md-quote {
+    margin: 0 0 8px;
+    padding: 6px 12px;
+    border-left: 3px solid var(--line-strong);
+    color: var(--ink-soft);
+    font-style: italic;
+}
+
+.md-hr {
+    margin: 12px 0;
+    border: none;
+    border-top: 1px solid var(--line);
+}
+
+/* Wide tables scroll inside their own container -- the page never scrolls
+   horizontally, even when a persona answers with a comparison table whose
+   rows run far wider than the pane. */
+.md-table-wrap {
+    max-width: 100%;
+    margin: 0 0 10px;
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+}
+
+.md-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+}
+
+.md-table th,
+.md-table td {
+    padding: 6px 10px;
+    text-align: left;
+    vertical-align: top;
+    border-bottom: 1px solid var(--line);
+}
+
+.md-table th {
+    background: var(--surface-sunk);
+    color: var(--ink-soft);
+    font-weight: var(--weight-semibold);
+    font-size: 12px;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.md-table tbody tr:last-child td { border-bottom: none; }
+.md-table tbody tr:nth-child(even) { background: var(--surface-sunk); }
 
 .composer {
     display: flex;
@@ -761,7 +875,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
     background: var(--surface);
     color: var(--ink);
     font: inherit;
-    font-size: 13px;
+    font-size: 15px;
 }
 
 .composer select { flex: none; max-width: 190px; }
@@ -769,14 +883,20 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 /* ----------------------------------------------------------- inspector */
 
-.dossier h3 { margin: 0 0 2px; font-size: 15px; }
-.dossier .role { color: var(--ink-soft); font-size: 12.5px; margin-bottom: 10px; }
+/* font-weight was previously unset here, silently relying on the browser's
+   default UA bold for h3 -- correct by accident, and one future global
+   heading reset away from breaking. Explicit now, and matched to the same
+   16px/bold treatment as .masthead h1 / .modal-head h2 so the three
+   "this is a title" moments in the app share one visual language instead
+   of each landing on a slightly different weight for the same job. */
+.dossier h3 { margin: 0 0 2px; font-size: 16px; font-weight: var(--weight-bold); }
+.dossier .role { color: var(--ink-soft); font-size: 14px; margin-bottom: 10px; }
 
-.kv { display: grid; grid-template-columns: 76px 1fr; gap: 4px 10px; font-size: 12px; margin-bottom: 12px; }
-.kv dt { color: var(--ink-faint); text-transform: uppercase; font-size: 10px; letter-spacing: 0.06em; padding-top: 2px; }
+.kv { display: grid; grid-template-columns: 76px 1fr; gap: 4px 10px; font-size: 13.5px; margin-bottom: 12px; }
+.kv dt { color: var(--ink-faint); text-transform: uppercase; font-size: 11.5px; letter-spacing: 0.06em; padding-top: 2px; }
 .kv dd { margin: 0; }
 
-.conflict-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; font-size: 12px; }
+.conflict-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; font-size: 13.5px; }
 .conflict-list li { display: flex; gap: 6px; align-items: baseline; }
 .conflict-list .in-room { color: var(--tension); font-weight: 600; }
 
@@ -811,7 +931,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
     padding: 14px 18px;
     border-bottom: 1px solid var(--line);
 }
-.modal-head h2 { margin: 0; font-size: 15px; font-weight: 650; }
+.modal-head h2 { margin: 0; font-size: 16px; font-weight: var(--weight-bold); }
 .modal-head .btn-ghost { margin-left: auto; }
 
 .modal-body { padding: 16px 18px; overflow-y: auto; }
@@ -841,10 +961,10 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .provider-card.is-active { border-color: var(--accent); background: var(--accent-soft); }
 .provider-card:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-.provider-name { font-weight: 650; font-size: 13px; }
+.provider-name { font-weight: 650; font-size: 15px; }
 
 .provider-state {
-    font-size: 10.5px;
+    font-size: 12px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: var(--ink-faint);
@@ -852,7 +972,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .provider-state.ok { color: var(--accent-ink); }
 
 .field { display: grid; gap: 5px; }
-.field > span { font-size: 11px; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-soft); }
+.field > span { font-size: 12.5px; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-soft); }
 .field input,
 .field select {
     padding: 8px 10px;
@@ -861,9 +981,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
     background: var(--ground);
     color: var(--ink);
     font: inherit;
-    font-size: 13px;
+    font-size: 15px;
 }
-.field small { color: var(--ink-faint); font-size: 11.5px; line-height: 1.45; }
+.field small { color: var(--ink-faint); font-size: 13px; line-height: 1.45; }
 
 .modal-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
@@ -875,9 +995,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
     padding: 28px 16px;
     text-align: center;
     color: var(--ink-faint);
-    font-size: 12.5px;
+    font-size: 14px;
 }
-.state strong { color: var(--ink-soft); font-size: 13px; font-weight: 600; }
+.state strong { color: var(--ink-soft); font-size: 15px; font-weight: 600; }
 
 .error-banner {
     display: flex;
@@ -889,7 +1009,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
     border-radius: var(--radius);
     background: var(--guard-soft);
     color: var(--guard);
-    font-size: 12.5px;
+    font-size: 14px;
 }
 .error-banner button { margin-left: auto; }
 
@@ -944,12 +1064,12 @@ button { font: inherit; color: inherit; cursor: pointer; }
     align-items: baseline;
     padding: 7px 10px;
     background: var(--surface);
-    font-size: 12.5px;
+    font-size: 14px;
 }
 
 .task-head {
     background: var(--surface-sunk);
-    font-size: 10px;
+    font-size: 11.5px;
     font-weight: 650;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -1256,7 +1376,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .history-row.is-open { border-left-color: var(--accent); background: var(--accent-soft); }
 
 .history-title {
-    font-size: 13px;
+    font-size: 15px;
     font-weight: 600;
     line-height: 1.35;
     /* Titles are briefs, so they run long. Two lines, then clip -- a wall of
@@ -1268,7 +1388,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 }
 
 .history-meta {
-    font-size: 11px;
+    font-size: 12.5px;
     color: var(--ink-faint);
     display: flex;
     align-items: center;
