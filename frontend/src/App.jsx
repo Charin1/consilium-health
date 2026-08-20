@@ -553,6 +553,13 @@ export default function App() {
             setOneOnOne(seat)
             setTarget(seatId)
             setMessages([])
+            // Same pattern as resumeSession: setting the tab alone only
+            // matters once the user is actually looking at the console.
+            // Talk is reachable from the Floor (a different top-level view),
+            // and without this the session was created successfully in the
+            // background while the screen stayed on Floor showing nothing --
+            // "no action item" from the user's side even though it worked.
+            setView('console')
             setMiddleTab('log')
             if (typeof session.disclaimer === 'string' && session.disclaimer) {
                 setDisclaimer(session.disclaimer)

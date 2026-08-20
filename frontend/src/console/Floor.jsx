@@ -68,11 +68,29 @@ export default function Floor({
     const canvasRef = useRef(null)
     const wrapRef = useRef(null)
     const dragRef = useRef(null)
+    const hideTipRef = useRef(null)
 
     const [size, setSize] = useState({ width: 0, height: 0 })
     const [transform, setTransform] = useState(null)
     const [hovered, setHovered] = useState(null)
     const [panning, setPanning] = useState(false)
+
+    // .floor-tip renders as a sibling of .floor-card, not a descendant, so
+    // hiding it the instant the pointer/focus leaves the card means it
+    // vanishes before a mouse crossing the visual gap -- or a Tab press --
+    // can ever reach its own Talk/Assign buttons. Debouncing the hide (and
+    // cancelling it if the pointer/focus lands back on the card or the tip
+    // itself) is the standard fix every real tooltip library uses for this;
+    // showing stays instant, only hiding gets the grace window.
+    const showTip = useCallback((seatId) => {
+        if (hideTipRef.current) { clearTimeout(hideTipRef.current); hideTipRef.current = null }
+        setHovered(seatId)
+    }, [])
+    const scheduleHideTip = useCallback(() => {
+        if (hideTipRef.current) clearTimeout(hideTipRef.current)
+        hideTipRef.current = setTimeout(() => { setHovered(null); hideTipRef.current = null }, 200)
+    }, [])
+    useEffect(() => () => { if (hideTipRef.current) clearTimeout(hideTipRef.current) }, [])
 
     const placed = layoutSeats(seats)
     const zones = layoutZones(placed)
@@ -409,10 +427,10 @@ export default function Floor({
                             <button
                                 type="button"
                                 className={`floor-card is-${status.state}${inRoom && inRoom.has(seat.id) ? ' is-seated' : ''}`}
-                                onMouseEnter={() => { setHovered(seat.id); onInspect(seat.id) }}
-                                onFocus={() => { setHovered(seat.id); onInspect(seat.id) }}
-                                onMouseLeave={() => setHovered(null)}
-                                onBlur={() => setHovered(null)}
+                                onMouseEnter={() => { showTip(seat.id); onInspect(seat.id) }}
+                                onFocus={() => { showTip(seat.id); onInspect(seat.id) }}
+                                onMouseLeave={scheduleHideTip}
+                                onBlur={scheduleHideTip}
                                 onClick={() => onAssign(seat)}
                                 aria-label={`${text(seat.name, seat.id)}, ${text(seat.role)}. ${text(status.label, 'Idle')}. Assign a task.`}
                             >
@@ -421,7 +439,14 @@ export default function Floor({
                             </button>
 
                             {hovered === seat.id && (
-                                <div className="floor-tip" role="tooltip">
+                                <div
+                                    className="floor-tip"
+                                    role="tooltip"
+                                    onMouseEnter={() => showTip(seat.id)}
+                                    onMouseLeave={scheduleHideTip}
+                                    onFocus={() => showTip(seat.id)}
+                                    onBlur={scheduleHideTip}
+                                >
                                     <strong>{text(seat.name, seat.id)}</strong>
                                     <span className="floor-tip-role">{text(seat.role)}</span>
                                     <span className={`floor-tip-state is-${status.state}`}>
