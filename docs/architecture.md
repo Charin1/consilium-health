@@ -438,6 +438,44 @@ Langfuse recorded for the same call. Cardinality is bounded on purpose: node
 name, model, provider, `degraded` — never `session_id`/`persona_id`/`run_id`,
 which belong on the span, not the metric.
 
+**Loop engineering (ai-agents.md #6/#7): a deterministic quality gate, not an
+LLM judge.** `generate_detailed`'s `quality_gate=True` default checks each
+response against `_passes_quality_gate` (llm_client.py) — too short, mostly
+echoes the prompt back, or has no recommendation/number/next-step signal
+anywhere — and re-asks ONCE with corrective feedback appended to the system
+prompt before accepting whatever the second attempt produced. Bounded, never
+a loop: at most 2 calls, ever. Deliberately deterministic rather than a
+second LLM call scoring the first — a judge call would double the number of
+*paid* calls on every single turn to catch a failure mode the substance/
+recommendation check already catches for free.
+
+Cost accounting stays honest through a retry: `usage` is *summed* across both
+attempts, not just the accepted one — a retried turn genuinely spends 2x
+tokens, and reporting only the final call's tokens would silently undercount
+spend for exactly the turns that cost the most. Verified, not assumed: a
+scripted fake-model test forced a too-short first response, confirmed exactly
+2 calls were made, confirmed the second call's system prompt carried the
+corrective feedback, and confirmed `result.usage` was the sum of both
+attempts (100 input / 53 output, not just the second call's 60/45). A
+separate test confirmed a good first response makes exactly 1 call — the gate
+costs nothing when nothing's wrong.
+
+`quality_retried` surfaces the same way `degraded` already does: an OTel span
+attribute (`llm.quality_retried`, `llm.quality_flag`) and a Prometheus counter
+(`llm_quality_retry_total{node}`) — a rising rate for one node is a prompt
+problem for that node, not noise, same read as `node_fallback_total`. It is
+**not** a second degraded state: a retried-and-passed response is a normal,
+billable, successful generation that just needed one nudge — `degraded` means
+no model answered at all, which is a categorically different failure.
+
+Applied everywhere `generate_detailed` is called, with one deliberate
+exception: `ai_router.py`'s seat picker passes `quality_gate=False`. Its
+output is JSON (a seat-id array), not prose — a "contains a recommendation"
+check would misfire on every call. `_extract_json` plus the seat-id
+validation already downstream of it **is** that call's quality gate, just
+shaped for what it actually returns rather than forcing a poor-fitting
+generic check onto a structurally different output.
+
 **Exemplars close the loop the other direction**: a Prometheus data point
 carries the exact `trace_id` of a request that contributed to it, so a spike
 in a Grafana graph isn't just "something got slow at 3:04pm" — click the

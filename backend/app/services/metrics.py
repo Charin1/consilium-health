@@ -50,6 +50,16 @@ _llm_calls = _meter.create_counter(
     unit="{call}",
     description="One per generate_detailed call, tagged degraded=true/false",
 )
+_llm_quality_retry = _meter.create_counter(
+    "llm.quality_retry",
+    unit="{retry}",
+    description=(
+        "Loop engineering (ai-agents.md #6/#7): the first attempt failed the "
+        "deterministic quality gate and got one corrective re-ask. A rising "
+        "rate for one node is a prompt problem for that node, not noise -- "
+        "same read as node_fallback_total, but for quality instead of outages."
+    ),
+)
 
 
 def record_llm_call(
@@ -62,6 +72,7 @@ def record_llm_call(
     tokens_out: int = 0,
     cost_usd: Optional[float] = None,
     degraded: bool = False,
+    quality_retried: bool = False,
 ) -> None:
     """Call once per `generate_detailed` invocation -- never once per round
     or per session. Per-node attribution is the entire point: when spend
@@ -76,3 +87,5 @@ def record_llm_call(
         _llm_tokens.add(tokens_out, {**labels, "direction": "output"})
     if cost_usd is not None:
         _llm_cost.add(cost_usd, labels)
+    if quality_retried:
+        _llm_quality_retry.add(1, labels)

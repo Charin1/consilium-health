@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -58,6 +59,15 @@ class GenerationResult:
     latency_ms: Optional[float] = None
     langfuse_trace_id: Optional[str] = None
     langfuse_url: Optional[str] = None
+    # Loop engineering (ai-agents.md #6/#7): a deterministic quality floor,
+    # not a grader. quality_retried is True when the first attempt failed the
+    # gate and got one corrective re-ask; quality_flag is the failure reason
+    # that STILL applies after the last attempt (None if the accepted
+    # response passed). Both are visibility, not a second degraded state --
+    # unlike `degraded`, quality_flag can be set on a perfectly successful,
+    # billable generation that just wasn't very good.
+    quality_retried: bool = False
+    quality_flag: Optional[str] = None
 
 
 class ProviderUnavailable(RuntimeError):
@@ -156,6 +166,48 @@ def _text_from(message: Any) -> str:
     return str(content)
 
 
+# Deliberately loose: this exists to catch a response with NO concrete
+# substance anywhere, not to grade prose quality. False negatives here cost
+# nothing (no re-ask happens); a false positive costs one extra LLM call, so
+# every pattern below errs toward permissive rather than strict.
+_ACTION_SIGNAL = re.compile(
+    r"recommend|next step|action item|priorit"
+    r"|should\s+\w+\s+(build|invest|pursue|adopt|implement|launch|hire|cut|raise|reduce|avoid)"
+    r"|^\s*\d+\.\s|\$\s?\d|\d+\s?%",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+MIN_QUALITY_WORDS = 25
+
+
+def _passes_quality_gate(text: str, user_prompt: str) -> Tuple[bool, Optional[str]]:
+    """
+    A deterministic floor (ai-agents.md #6/#7), not a grader -- zero extra
+    LLM calls to check. Two failure modes this catches, both real and both
+    cheap to detect without another model call:
+
+    - Too short to be a real turn (a one-line non-answer).
+    - Just echoes the brief back instead of engaging with it -- the response
+      appears near-verbatim inside the prompt it was supposed to be
+      answering.
+    - No concrete substance anywhere: no recommendation, next step, number,
+      or dollar figure in the whole response.
+    """
+    words = text.split()
+    if len(words) < MIN_QUALITY_WORDS:
+        return False, "was too short to be a substantive answer"
+
+    normalized = " ".join(text.lower().split())
+    normalized_prompt = " ".join(user_prompt.lower().split())
+    if len(normalized) > 40 and normalized in normalized_prompt:
+        return False, "mostly repeated the question instead of answering it"
+
+    if not _ACTION_SIGNAL.search(text):
+        return False, "was generic commentary with no concrete recommendation, number, or next step"
+
+    return True, None
+
+
 class UnifiedLLMClient:
     """
     Provider-agnostic client for the debate loop.
@@ -211,6 +263,7 @@ class UnifiedLLMClient:
         persona_id: Optional[str] = None,
         pack: Optional[str] = None,
         tags: Optional[List[str]] = None,
+        quality_gate: bool = True,
     ) -> GenerationResult:
         """
         `node`/`session_id`/`persona_id`/`pack`/`tags` are Langfuse context only
@@ -220,6 +273,14 @@ class UnifiedLLMClient:
         call in one boardroom session into one Langfuse session; `node` is
         what answers "which stage is spending the money" on the cost
         dashboard (ai-agents.md #2).
+
+        `quality_gate` (ai-agents.md #6/#7): on by default, checks the
+        response against `_passes_quality_gate` and re-asks ONCE with
+        corrective feedback if it fails, then accepts whatever the second
+        attempt produced. Off for callers whose output isn't prose a
+        "contains a recommendation" check could ever fairly judge -- e.g.
+        `ai_router.py`'s seat picker, which returns JSON and already has its
+        own structural validation for that shape.
         """
         provider_id = self.provider
         model_id = self.model_for(seat_tier)
@@ -290,20 +351,56 @@ class UnifiedLLMClient:
                     max_tokens=max_tokens,
                     base_url=getattr(self.config, "ollama_base_url", None),
                 )
-                response = chat.invoke([
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ])
-                text = _text_from(response).strip()
-                if not text:
-                    raise RuntimeError("provider returned an empty message")
-                usage = _usage_from(response)
+
+                # Bounded: at most one re-ask (ai-agents.md #6 -- "never
+                # unbounded loops"). Usage is SUMMED across attempts, not
+                # just the accepted one -- a retried turn genuinely costs
+                # 2x tokens, and reporting only the final call's tokens
+                # would silently undercount spend for exactly the turns
+                # that cost the most (ai-agents.md #2, per-stage attribution
+                # must be honest or the whole point of tracking it is lost).
+                current_system = system_prompt
+                text = ""
+                quality_retried = False
+                quality_flag: Optional[str] = None
+                usage: Dict[str, Any] = {}
+                for attempt in range(2):
+                    response = chat.invoke([
+                        {"role": "system", "content": current_system},
+                        {"role": "user", "content": user_prompt},
+                    ])
+                    text = _text_from(response).strip()
+                    if not text:
+                        raise RuntimeError("provider returned an empty message")
+                    attempt_usage = _usage_from(response)
+                    for key, value in attempt_usage.items():
+                        if isinstance(value, (int, float)):
+                            usage[key] = usage.get(key, 0) + value
+                        else:
+                            usage.setdefault(key, value)
+
+                    if not quality_gate:
+                        break
+                    passed, reason = _passes_quality_gate(text, user_prompt)
+                    if passed or attempt == 1:
+                        quality_flag = None if passed else reason
+                        break
+                    quality_retried = True
+                    quality_flag = reason
+                    current_system = (
+                        f"{system_prompt}\n\n"
+                        f"Your previous answer {reason}. Rewrite it: be specific "
+                        "and name a concrete recommendation, figure, or next action."
+                    )
+
                 cost, priced = cost_usd(provider_id, model_id, usage)
                 result = GenerationResult(
                     text=text, provider=provider_id, model=model_id,
                     usage=usage,
                     cost_usd=cost if priced else None,
                     latency_ms=(time.perf_counter() - started) * 1000,
+                    quality_retried=quality_retried,
+                    quality_flag=quality_flag,
                 )
                 if generation is not None:
                     self._finish_generation(generation, result)
@@ -340,6 +437,10 @@ class UnifiedLLMClient:
                 otel_span.set_attribute("langfuse.trace.url", result.langfuse_url)
             if result.degraded:
                 otel_span.set_attribute("llm.degraded", True)
+            if result.quality_retried:
+                otel_span.set_attribute("llm.quality_retried", True)
+            if result.quality_flag:
+                otel_span.set_attribute("llm.quality_flag", result.quality_flag)
 
             # Unconditional (unlike _finish_generation, which only runs when
             # Langfuse is configured) -- Prometheus metrics work independently
@@ -354,6 +455,7 @@ class UnifiedLLMClient:
                     tokens_out=result.usage.get("output_tokens") or 0,
                     cost_usd=result.cost_usd,
                     degraded=result.degraded,
+                    quality_retried=result.quality_retried,
                 )
             except Exception:
                 logger.debug("metric emit failed", exc_info=True)
@@ -402,14 +504,15 @@ class UnifiedLLMClient:
                  session_id: Optional[str] = None,
                  persona_id: Optional[str] = None,
                  pack: Optional[str] = None,
-                 tags: Optional[List[str]] = None) -> str:
+                 tags: Optional[List[str]] = None,
+                 quality_gate: bool = True) -> str:
         """Text only. `self.last_result` carries whether it degraded."""
         return self.generate_detailed(
             system_prompt, user_prompt,
             temperature=temperature, max_tokens=max_tokens,
             seat_tier=seat_tier, fallback=fallback,
             node=node, session_id=session_id, persona_id=persona_id,
-            pack=pack, tags=tags,
+            pack=pack, tags=tags, quality_gate=quality_gate,
         ).text
 
     async def generate_async(self, system_prompt: str, user_prompt: str,
@@ -420,13 +523,14 @@ class UnifiedLLMClient:
                              session_id: Optional[str] = None,
                              persona_id: Optional[str] = None,
                              pack: Optional[str] = None,
-                             tags: Optional[List[str]] = None) -> str:
+                             tags: Optional[List[str]] = None,
+                             quality_gate: bool = True) -> str:
         import asyncio
         return await asyncio.to_thread(
             self.generate, system_prompt, user_prompt,
             temperature=temperature, max_tokens=max_tokens, seat_tier=seat_tier,
             node=node, session_id=session_id, persona_id=persona_id,
-            pack=pack, tags=tags,
+            pack=pack, tags=tags, quality_gate=quality_gate,
         )
 
     # -- long transcripts --------------------------------------------------

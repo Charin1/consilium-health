@@ -130,6 +130,13 @@ def pick_seats(
         max_tokens=500,
         seat_tier=1,
         node="seat_router",
+        # This response is JSON, not prose -- generate_detailed's default
+        # quality gate checks for a recommendation/action-item signal that a
+        # seat-id array can never contain, so it would misfire every time.
+        # _extract_json + the seat-id validation below already IS this
+        # call's structural quality gate, just shaped for what it actually
+        # returns.
+        quality_gate=False,
     )
     if result.degraded:
         return {"seat_ids": [], "reason": "", "ok": False, "error": result.reason}
