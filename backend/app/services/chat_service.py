@@ -6,6 +6,7 @@ from __future__ import annotations
 import logging
 import os
 import textwrap
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Set, Tuple
 from uuid import uuid4
@@ -18,6 +19,7 @@ from app.services.boardroom_graph import BoardroomGraphEngine
 from app.services.guardrails import guardrails_for_pack
 from app.services.persona_loader import available_packs, load_personas
 from app.services.phase_ladders import format_phase, ladder_for_pack
+from app.services.turn_planner import plan_turn
 from app.services.workflow_contracts import utc_now
 
 logger = logging.getLogger("consilium.chat")
@@ -1601,6 +1603,12 @@ class ChatService:
         prompt = "\n\n".join(part for part in [system_prompt, history_text, user_prompt] if part)
 
         try:
+            if not is_summary:
+                plan = plan_turn(persona, user_message, self.llm_client)
+                if plan["mode"] == "plan":
+                    return self._call_model_planned(
+                        persona, system_prompt, prompt, plan["angles"],
+                    )
             return self.llm_client.generate(
                 system_prompt=system_prompt,
                 user_prompt=prompt,
@@ -1622,6 +1630,89 @@ class ChatService:
             stance_mode=stance_mode,
             is_summary=is_summary,
         )
+
+    def _call_model_planned(
+        self,
+        persona: Dict[str, str],
+        system_prompt: str,
+        base_prompt: str,
+        angles: List[str],
+    ) -> str:
+        """
+        Decompose -> concurrent sub-answers -> synthesize (ai-agents.md #1, #6).
+
+        No retrieval layer exists yet (turn_planner.py) -- every sub-answer is
+        still the model's own knowledge, just forced to reason through one
+        angle at a time instead of blending all of them into a single shallow
+        pass. Each stage carries its own `node=` tag so a complex turn's real
+        cost/latency shows up broken down in Langfuse/Prometheus, not folded
+        into one number (ai-agents.md #2).
+        """
+        def _sub_answer(angle: str) -> Optional[str]:
+            sub_prompt = (
+                f"{base_prompt}\n\n"
+                f"For this pass, answer ONLY through this angle: {angle}\n"
+                "Be concrete and specific to this angle -- do not try to "
+                "cover the whole brief."
+            )
+            result = self.llm_client.generate_detailed(
+                system_prompt, sub_prompt,
+                temperature=0.5, max_tokens=600,
+                node="subanswer_turn", persona_id=persona.get("id"),
+                pack=persona.get("pack"),
+                # Fragments meant to feed a synthesis pass, not a standalone
+                # answer -- the "sounds like a full recommendation" floor
+                # would misfire on a deliberately partial angle.
+                quality_gate=False,
+            )
+            if result.degraded:
+                # A degraded call's text is `_degraded_notice()` -- "No model
+                # answered this turn" boilerplate, not content. Folding that
+                # into the synthesis prompt as an "angle note" would make the
+                # synthesizing model react to it as if it were real input.
+                # Drop the angle instead; degradation is already visible on
+                # this call's own OTel span / Prometheus metric via `node=
+                # subanswer_turn` (ai-agents.md #6) -- silently dropping it
+                # here only avoids corrupting the *next* stage's input.
+                logger.warning(
+                    "Planned-turn sub-answer degraded for angle %r: %s",
+                    angle, result.reason,
+                )
+                return None
+            return f"[{angle}]\n{result.text.strip()}"
+
+        with ThreadPoolExecutor(max_workers=len(angles)) as pool:
+            sub_answers = [a for a in pool.map(_sub_answer, angles) if a is not None]
+
+        if not sub_answers:
+            # Every angle degraded -- there is nothing real to synthesize
+            # from. Fall back to the plain single-call path rather than
+            # asking the model to synthesize from an empty set of notes.
+            return self.llm_client.generate(
+                system_prompt, base_prompt,
+                temperature=0.5, max_tokens=5000,
+                node="advisor_turn", persona_id=persona.get("id"),
+                pack=persona.get("pack"),
+            ).strip()
+
+        synthesis_prompt = (
+            f"{base_prompt}\n\n"
+            "You already thought this turn through from several angles below. "
+            "Write your ACTUAL turn now: one coherent response in your own "
+            "voice that draws on this thinking, without listing the angles "
+            "as headers or mentioning that you approached it this way. This "
+            "is one spoken turn in a live room, not a written report -- match "
+            "the length of a normal turn here (roughly 250-400 words); the "
+            "depth from decomposing the question should sharpen what you say, "
+            "not lengthen it.\n\n"
+            "YOUR ANGLE NOTES:\n" + "\n\n".join(sub_answers)
+        )
+        return self.llm_client.generate(
+            system_prompt, synthesis_prompt,
+            temperature=0.5, max_tokens=1500,
+            node="synthesize_turn", persona_id=persona.get("id"),
+            pack=persona.get("pack"),
+        ).strip()
 
     def _build_fallback_response(
         self,
